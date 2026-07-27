@@ -146,4 +146,24 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<void> setLocaleOverride(String? localeCode) {
     return _datasource.setLocaleOverride(localeCode);
   }
+
+  @override
+  Future<bool> getCalendarSyncEnabled() {
+    return _datasource.getCalendarSyncEnabled();
+  }
+
+  @override
+  Future<void> setCalendarSyncEnabled(bool calendarSyncEnabled) {
+    return _datasource.setCalendarSyncEnabled(calendarSyncEnabled);
+  }
+
+  @override
+  Future<String?> getSyncCalendarId() {
+    return _datasource.getSyncCalendarId();
+  }
+
+  @override
+  Future<void> setSyncCalendarId(String? calendarId) {
+    return _datasource.setSyncCalendarId(calendarId);
+  }
 }

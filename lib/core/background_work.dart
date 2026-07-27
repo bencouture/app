@@ -8,6 +8,7 @@ import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
 import 'package:vikunja_app/data/data_sources/task_data_source.dart';
 import 'package:vikunja_app/data/repositories/task_repository_impl.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
+import 'package:vikunja_app/presentation/manager/calendar_sync.dart';
 import 'package:vikunja_app/presentation/manager/notifications.dart';
 import 'package:vikunja_app/presentation/manager/widget_controller.dart';
 import 'package:workmanager/workmanager.dart';
@@ -68,6 +69,8 @@ Future<bool> updateTasks() async {
   NotificationHandler notificationHandler = NotificationHandler();
   await notificationHandler.initNotifications();
   await notificationHandler.scheduleDueNotifications(taskService);
+
+  await syncCalendar(taskService);
 
   return Future.value(true);
 }

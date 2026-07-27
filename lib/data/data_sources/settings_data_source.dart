@@ -169,4 +169,40 @@ class SettingsDatasource {
   Future<void> setLocaleOverride(String? localeCode) async {
     await _storage.write(key: "locale_override", value: localeCode);
   }
+
+  Future<void> setCalendarSyncEnabled(bool calendarSyncEnabled) async {
+    await _storage.write(
+      key: "calendar_sync_enabled",
+      value: calendarSyncEnabled.toString(),
+    );
+  }
+
+  Future<bool> getCalendarSyncEnabled() async {
+    String? calendarSyncEnabled = await _storage.read(
+      key: "calendar_sync_enabled",
+    );
+    return calendarSyncEnabled == "true";
+  }
+
+  Future<String?> getSyncCalendarId() {
+    return _storage.read(key: "sync_calendar_id");
+  }
+
+  Future<void> setSyncCalendarId(String? calendarId) {
+    return _storage.write(key: "sync_calendar_id", value: calendarId);
+  }
+
+  // task id -> device calendar event id, for syncCalendar to know which
+  // events to update vs. create, and which to delete once a task is no
+  // longer open/due.
+  Future<Map<int, String>> getCalendarEventMap() async {
+    String jsonString = await _storage.read(key: "calendar_event_map") ?? "{}";
+    Map<String, dynamic> decoded = jsonDecode(jsonString);
+    return decoded.map((key, value) => MapEntry(int.parse(key), value as String));
+  }
+
+  Future<void> setCalendarEventMap(Map<int, String> eventMap) {
+    final encoded = eventMap.map((key, value) => MapEntry(key.toString(), value));
+    return _storage.write(key: "calendar_event_map", value: jsonEncode(encoded));
+  }
 }

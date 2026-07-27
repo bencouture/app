@@ -116,3 +116,6 @@ local.properties
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Claude Code scratch space
+.claude/scratch/

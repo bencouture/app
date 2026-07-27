@@ -39,6 +39,12 @@ class SettingsController extends _$SettingsController {
     var dynamicColor = await ref
         .read(settingsRepositoryProvider)
         .getDynamicColors();
+    var calendarSyncEnabled = await ref
+        .read(settingsRepositoryProvider)
+        .getCalendarSyncEnabled();
+    var syncCalendarId = await ref
+        .read(settingsRepositoryProvider)
+        .getSyncCalendarId();
 
     var version = await ref
         .read(versionRepositoryProvider)
@@ -60,6 +66,8 @@ class SettingsController extends _$SettingsController {
       refreshInterval,
       themeMode,
       dynamicColor,
+      calendarSyncEnabled,
+      syncCalendarId,
       version,
     );
   }
@@ -107,6 +115,16 @@ class SettingsController extends _$SettingsController {
 
   Future<void> setVersionNotifications(bool value) async {
     ref.read(settingsRepositoryProvider).setVersionNotifications(value);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setCalendarSyncEnabled(bool value) async {
+    ref.read(settingsRepositoryProvider).setCalendarSyncEnabled(value);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setSyncCalendarId(String? calendarId) async {
+    ref.read(settingsRepositoryProvider).setSyncCalendarId(calendarId);
     state = AsyncData(await getAll());
   }
 

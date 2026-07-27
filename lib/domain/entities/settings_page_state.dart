@@ -16,6 +16,9 @@ class SettingsPageState {
   FlutterThemeMode themeMode;
   bool dynamicColors;
 
+  bool calendarSyncEnabled;
+  String? syncCalendarId;
+
   Version? currentVersion;
 
   SettingsPageState(
@@ -27,6 +30,8 @@ class SettingsPageState {
     this.refreshInterval,
     this.themeMode,
     this.dynamicColors,
+    this.calendarSyncEnabled,
+    this.syncCalendarId,
     this.currentVersion,
   );
 }

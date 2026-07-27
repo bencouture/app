@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'package:device_calendar_plus/device_calendar_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,10 @@ import 'package:vikunja_app/presentation/manager/settings_controller.dart';
 import 'package:vikunja_app/presentation/pages/error_widget.dart';
 import 'package:vikunja_app/presentation/pages/loading_widget.dart';
 import 'package:vikunja_app/presentation/pages/login/login_page.dart';
+
+// Sentinel dropdown value for "create a new calendar", distinct from any
+// real calendar id the platform could hand back.
+const _newCalendarSentinel = '__new_vikunja_calendar__';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -120,6 +125,71 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       .setDynamicColors(value ?? false);
                 },
               ),
+              Divider(),
+              SwitchListTile(
+                title: Text("Sync tasks to calendar"),
+                subtitle: Text(
+                  "Adds a calendar event for every open task with a due date",
+                ),
+                value: settings.calendarSyncEnabled,
+                onChanged: (bool? value) async {
+                  if (value == true) {
+                    // First-ever calendar-plugin call: this is also the
+                    // first moment the OS permission dialog can appear.
+                    final status = await DeviceCalendar.instance
+                        .requestPermissions();
+                    final granted =
+                        status == CalendarPermissionStatus.granted ||
+                        status == CalendarPermissionStatus.writeOnly;
+                    if (!granted) {
+                      // Leave the switch off, don't retry silently.
+                      return;
+                    }
+                  }
+                  ref
+                      .read(settingsControllerProvider.notifier)
+                      .setCalendarSyncEnabled(value ?? false);
+                },
+              ),
+              if (settings.calendarSyncEnabled)
+                ListTile(
+                  title: Text("Sync calendar"),
+                  trailing: FutureBuilder<List<Calendar>>(
+                    future: DeviceCalendar.instance.listCalendars(),
+                    builder: (context, snapshot) {
+                      final calendars = (snapshot.data ?? [])
+                          .where((c) => !c.readOnly)
+                          .toList();
+                      return DropdownButton<String>(
+                        value: settings.syncCalendarId,
+                        hint: Text("Select calendar"),
+                        items: [
+                          ...calendars.map(
+                            (c) => DropdownMenuItem(
+                              value: c.id,
+                              child: Text(c.name),
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: _newCalendarSentinel,
+                            child: Text("Vikunja (new calendar)"),
+                          ),
+                        ],
+                        onChanged: (value) async {
+                          if (value == null) return;
+                          var calendarId = value;
+                          if (value == _newCalendarSentinel) {
+                            calendarId = await DeviceCalendar.instance
+                                .createCalendar(name: "Vikunja");
+                          }
+                          ref
+                              .read(settingsControllerProvider.notifier)
+                              .setSyncCalendarId(calendarId);
+                        },
+                      );
+                    },
+                  ),
+                ),
               Divider(),
               CheckboxListTile(
                 title: Text(l10n.ignoreCertificates),

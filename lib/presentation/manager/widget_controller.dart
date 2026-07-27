@@ -11,6 +11,7 @@ import 'package:vikunja_app/data/repositories/task_repository_impl.dart';
 import 'package:vikunja_app/domain/entities/task.dart';
 import 'package:vikunja_app/domain/entities/widget_task.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
+import 'package:vikunja_app/presentation/manager/calendar_sync.dart';
 
 Future<void> completeTask(String taskID) async {
   if (taskID == "null") {
@@ -33,6 +34,7 @@ Future<void> completeTask(String taskID) async {
     var task = taskResponse.toSuccess().body;
     await taskService.update(task.copyWith(done: true));
     await updateWidget();
+    await syncCalendar(taskService);
   } else {
     developer.log("There was an error initialising the client");
   }

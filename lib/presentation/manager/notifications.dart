@@ -12,6 +12,7 @@ import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
 import 'package:vikunja_app/data/data_sources/task_data_source.dart';
 import 'package:vikunja_app/data/repositories/task_repository_impl.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
+import 'package:vikunja_app/presentation/manager/calendar_sync.dart';
 import 'package:vikunja_app/presentation/manager/widget_controller.dart';
 
 const _actionDonePortName = 'action_done_port_name';
@@ -53,6 +54,7 @@ Future<void> markAsDone(int id) async {
     await taskService.update(task);
 
     await updateWidget();
+    await syncCalendar(taskService);
 
     //Call app if opened to update view
     final SendPort? sendPort = IsolateNameServer.lookupPortByName(

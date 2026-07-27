@@ -65,5 +65,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Vikunja can add your tasks with due dates to a calendar of your choice.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Vikunja can add your tasks with due dates to a calendar of your choice.</string>
 </dict>
 </plist>

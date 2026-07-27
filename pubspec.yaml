@@ -17,6 +17,7 @@ dependencies:
   cronet_http: ^1.2.0
   cupertino_http: ^2.0.2
   datetime_picker_formfield_new: ^2.1.0
+  device_calendar_plus: ^0.8.0
   dynamic_color: ^1.7.0
   flutter_colorpicker: ^1.1.0
   flutter_lints: ^6.0.0
@@ -51,6 +52,7 @@ dev_dependencies:
     sdk: flutter
   build_runner: ^2.5.4
   custom_lint: ^0.7.6
+  device_calendar_plus_platform_interface: ^0.7.0
   flutter_launcher_icons: ^0.14.3
   riverpod_generator: ^2.6.5
   riverpod_lint: ^2.6.5
