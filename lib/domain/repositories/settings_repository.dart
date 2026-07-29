@@ -1,4 +1,5 @@
 import 'package:vikunja_app/core/theming/theme_mode.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 
 abstract class SettingsRepository {
   Future<bool> getIgnoreCertificates();
@@ -64,4 +65,16 @@ abstract class SettingsRepository {
   Future<String?> getSyncCalendarId();
 
   Future<void> setSyncCalendarId(String? calendarId);
+
+  Future<bool> getSyncAllDayTasks();
+
+  Future<void> setSyncAllDayTasks(bool value);
+
+  Future<AllDayEventDisplay> getAllDayEventDisplay();
+
+  Future<void> setAllDayEventDisplay(AllDayEventDisplay value);
+
+  Future<int?> getEventColor();
+
+  Future<void> setEventColor(int? color);
 }

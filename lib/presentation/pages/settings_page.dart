@@ -1,5 +1,5 @@
 import 'package:collection/collection.dart';
-import 'package:device_calendar_plus/device_calendar_plus.dart';
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,10 +11,12 @@ import 'package:vikunja_app/core/di/repository_provider.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/core/utils/language_autonyms.dart';
 import 'package:vikunja_app/core/utils/user_extensions.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
 import 'package:vikunja_app/domain/entities/version.dart';
 import 'package:vikunja_app/l10n/gen/app_localizations.dart';
+import 'package:vikunja_app/presentation/manager/calendar_sync.dart';
 import 'package:vikunja_app/presentation/manager/settings_controller.dart';
 import 'package:vikunja_app/presentation/pages/error_widget.dart';
 import 'package:vikunja_app/presentation/pages/loading_widget.dart';
@@ -23,6 +25,24 @@ import 'package:vikunja_app/presentation/pages/login/login_page.dart';
 // Sentinel dropdown value for "create a new calendar", distinct from any
 // real calendar id the platform could hand back.
 const _newCalendarSentinel = '__new_vikunja_calendar__';
+
+const _allDayDisplayLabels = {
+  AllDayEventDisplay.midnight: 'At midnight (00:00)',
+  AllDayEventDisplay.endOfDay: 'At end of day (23:59)',
+  AllDayEventDisplay.allDayEvent: 'As an all-day event',
+};
+
+// A basic swatch, not a full picker -- null means "use the calendar's
+// default color".
+final _eventColorOptions = <String, int?>{
+  'Default': null,
+  'Red': Colors.red.toARGB32(),
+  'Orange': Colors.orange.toARGB32(),
+  'Yellow': Colors.yellow.shade700.toARGB32(),
+  'Green': Colors.green.toARGB32(),
+  'Blue': Colors.blue.toARGB32(),
+  'Purple': Colors.purple.toARGB32(),
+};
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -136,12 +156,12 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                   if (value == true) {
                     // First-ever calendar-plugin call: this is also the
                     // first moment the OS permission dialog can appear.
-                    final status = await DeviceCalendar.instance
+                    // Full access (not write-only): this settings page
+                    // needs to list existing calendars for the picker
+                    // below, which needs read access.
+                    final result = await DeviceCalendarPlugin()
                         .requestPermissions();
-                    final granted =
-                        status == CalendarPermissionStatus.granted ||
-                        status == CalendarPermissionStatus.writeOnly;
-                    if (!granted) {
+                    if (result.data != true) {
                       // Leave the switch off, don't retry silently.
                       return;
                     }
@@ -154,11 +174,11 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
               if (settings.calendarSyncEnabled)
                 ListTile(
                   title: Text("Sync calendar"),
-                  trailing: FutureBuilder<List<Calendar>>(
-                    future: DeviceCalendar.instance.listCalendars(),
+                  trailing: FutureBuilder(
+                    future: DeviceCalendarPlugin().retrieveCalendars(),
                     builder: (context, snapshot) {
-                      final calendars = (snapshot.data ?? [])
-                          .where((c) => !c.readOnly)
+                      final calendars = (snapshot.data?.data ?? const [])
+                          .where((c) => c.isReadOnly != true)
                           .toList();
                       return DropdownButton<String>(
                         value: settings.syncCalendarId,
@@ -167,7 +187,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           ...calendars.map(
                             (c) => DropdownMenuItem(
                               value: c.id,
-                              child: Text(c.name),
+                              child: Text(c.name ?? c.id ?? ''),
                             ),
                           ),
                           DropdownMenuItem(
@@ -179,14 +199,93 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           if (value == null) return;
                           var calendarId = value;
                           if (value == _newCalendarSentinel) {
-                            calendarId = await DeviceCalendar.instance
-                                .createCalendar(name: "Vikunja");
+                            final created = await DeviceCalendarPlugin()
+                                .createCalendar("Vikunja");
+                            if (!created.isSuccess) return;
+                            calendarId = created.data!;
                           }
-                          ref
+                          await ref
                               .read(settingsControllerProvider.notifier)
                               .setSyncCalendarId(calendarId);
+                          await syncCalendar(ref.read(taskRepositoryProvider));
                         },
                       );
+                    },
+                  ),
+                ),
+              if (settings.calendarSyncEnabled)
+                SwitchListTile(
+                  title: Text("Sync all-day tasks"),
+                  subtitle: Text(
+                    "Also sync tasks due on a day but with no specific time",
+                  ),
+                  value: settings.syncAllDayTasks,
+                  onChanged: (bool? value) async {
+                    await ref
+                        .read(settingsControllerProvider.notifier)
+                        .setSyncAllDayTasks(value ?? false);
+                    await syncCalendar(ref.read(taskRepositoryProvider));
+                  },
+                ),
+              if (settings.calendarSyncEnabled && settings.syncAllDayTasks)
+                ListTile(
+                  title: Text("Show all-day tasks as"),
+                  trailing: DropdownButton<AllDayEventDisplay>(
+                    value: settings.allDayEventDisplay,
+                    items: _allDayDisplayLabels.entries
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e.key,
+                            child: Text(e.value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) async {
+                      if (value == null) return;
+                      await ref
+                          .read(settingsControllerProvider.notifier)
+                          .setAllDayEventDisplay(value);
+                      await syncCalendar(ref.read(taskRepositoryProvider));
+                    },
+                  ),
+                ),
+              if (settings.calendarSyncEnabled)
+                ListTile(
+                  title: Text("Event color"),
+                  trailing: DropdownButton<int?>(
+                    value: settings.eventColor,
+                    items: _eventColorOptions.entries
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e.value,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 16,
+                                  height: 16,
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    color: e.value != null
+                                        ? Color(e.value!)
+                                        : null,
+                                    border: Border.all(
+                                      color: Theme.of(context).dividerColor,
+                                    ),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Text(e.key),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) async {
+                      await ref
+                          .read(settingsControllerProvider.notifier)
+                          .setEventColor(value);
+                      await syncCalendar(ref.read(taskRepositoryProvider));
                     },
                   ),
                 ),

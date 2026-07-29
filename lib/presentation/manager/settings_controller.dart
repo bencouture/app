@@ -4,6 +4,7 @@ import 'package:vikunja_app/core/di/network_provider.dart';
 import 'package:vikunja_app/core/di/repository_provider.dart';
 import 'package:vikunja_app/core/di/theme_provider.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/settings_page_state.dart';
 import 'package:workmanager/workmanager.dart';
@@ -45,6 +46,15 @@ class SettingsController extends _$SettingsController {
     var syncCalendarId = await ref
         .read(settingsRepositoryProvider)
         .getSyncCalendarId();
+    var syncAllDayTasks = await ref
+        .read(settingsRepositoryProvider)
+        .getSyncAllDayTasks();
+    var allDayEventDisplay = await ref
+        .read(settingsRepositoryProvider)
+        .getAllDayEventDisplay();
+    var eventColor = await ref
+        .read(settingsRepositoryProvider)
+        .getEventColor();
 
     var version = await ref
         .read(versionRepositoryProvider)
@@ -68,6 +78,9 @@ class SettingsController extends _$SettingsController {
       dynamicColor,
       calendarSyncEnabled,
       syncCalendarId,
+      syncAllDayTasks,
+      allDayEventDisplay,
+      eventColor,
       version,
     );
   }
@@ -125,6 +138,21 @@ class SettingsController extends _$SettingsController {
 
   Future<void> setSyncCalendarId(String? calendarId) async {
     ref.read(settingsRepositoryProvider).setSyncCalendarId(calendarId);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setSyncAllDayTasks(bool value) async {
+    ref.read(settingsRepositoryProvider).setSyncAllDayTasks(value);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setAllDayEventDisplay(AllDayEventDisplay value) async {
+    ref.read(settingsRepositoryProvider).setAllDayEventDisplay(value);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setEventColor(int? color) async {
+    ref.read(settingsRepositoryProvider).setEventColor(color);
     state = AsyncData(await getAll());
   }
 

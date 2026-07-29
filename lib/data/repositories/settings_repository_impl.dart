@@ -1,5 +1,6 @@
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 import 'package:vikunja_app/domain/repositories/settings_repository.dart';
 
 class SettingsRepositoryImpl implements SettingsRepository {
@@ -165,5 +166,35 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<void> setSyncCalendarId(String? calendarId) {
     return _datasource.setSyncCalendarId(calendarId);
+  }
+
+  @override
+  Future<bool> getSyncAllDayTasks() {
+    return _datasource.getSyncAllDayTasks();
+  }
+
+  @override
+  Future<void> setSyncAllDayTasks(bool value) {
+    return _datasource.setSyncAllDayTasks(value);
+  }
+
+  @override
+  Future<AllDayEventDisplay> getAllDayEventDisplay() {
+    return _datasource.getAllDayEventDisplay();
+  }
+
+  @override
+  Future<void> setAllDayEventDisplay(AllDayEventDisplay value) {
+    return _datasource.setAllDayEventDisplay(value);
+  }
+
+  @override
+  Future<int?> getEventColor() {
+    return _datasource.getEventColor();
+  }
+
+  @override
+  Future<void> setEventColor(int? color) {
+    return _datasource.setEventColor(color);
   }
 }

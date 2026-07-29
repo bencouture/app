@@ -6,6 +6,7 @@ import 'package:vikunja_app/core/network/response.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/task.dart';
 import 'package:vikunja_app/domain/entities/task_page_model.dart';
+import 'package:vikunja_app/presentation/manager/calendar_sync.dart';
 import 'package:vikunja_app/presentation/manager/pagination_mixin.dart';
 import 'package:vikunja_app/presentation/manager/widget_controller.dart';
 
@@ -94,6 +95,7 @@ class TaskPageController extends _$TaskPageController
     ref
         .read(notificationProvider)
         ?.scheduleDueNotifications(ref.read(taskRepositoryProvider));
+    syncCalendar(ref.read(taskRepositoryProvider));
 
     var showOnlyDueDateTasks = await ref
         .read(settingsRepositoryProvider)
@@ -185,6 +187,8 @@ class TaskPageController extends _$TaskPageController
         state = AsyncData(value.copyWith(tasks: tasks));
       }
 
+      syncCalendar(ref.read(taskRepositoryProvider));
+
       return true;
     }
 
@@ -212,6 +216,8 @@ class TaskPageController extends _$TaskPageController
         tasks.removeWhere((element) => element.id == task.id);
         state = AsyncData(value.copyWith(tasks: tasks));
       }
+
+      syncCalendar(ref.read(taskRepositoryProvider));
 
       return true;
     }

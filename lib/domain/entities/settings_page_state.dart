@@ -1,4 +1,5 @@
 import 'package:vikunja_app/core/theming/theme_mode.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
 import 'package:vikunja_app/domain/entities/version.dart';
@@ -18,6 +19,9 @@ class SettingsPageState {
 
   bool calendarSyncEnabled;
   String? syncCalendarId;
+  bool syncAllDayTasks;
+  AllDayEventDisplay allDayEventDisplay;
+  int? eventColor;
 
   Version? currentVersion;
 
@@ -32,6 +36,9 @@ class SettingsPageState {
     this.dynamicColors,
     this.calendarSyncEnabled,
     this.syncCalendarId,
+    this.syncAllDayTasks,
+    this.allDayEventDisplay,
+    this.eventColor,
     this.currentVersion,
   );
 }

@@ -1,9 +1,21 @@
 import 'dart:developer' as developer;
 
-import 'package:device_calendar_plus/device_calendar_plus.dart';
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
+
+// Tasks carry no duration of their own (Vikunja's due date is a point in
+// time), so every synced event gets the same short placeholder block.
+const _eventDuration = Duration(minutes: 10);
+
+// Vikunja represents "due today, no specific time" as midnight UTC -- there
+// is no separate all-day flag to check.
+bool _hasNoSpecificTime(DateTime due) {
+  final utc = due.toUtc();
+  return utc.hour == 0 && utc.minute == 0 && utc.second == 0;
+}
 
 /// One-way sync: open tasks with due dates -> one event per task on the
 /// user's chosen device calendar. Mirrors scheduleDueNotifications/
@@ -25,46 +37,92 @@ Future<void> syncCalendar(
   final calendarId = await settings.getSyncCalendarId();
   if (calendarId == null) return;
 
+  final syncAllDayTasks = await settings.getSyncAllDayTasks();
+  final allDayEventDisplay = await settings.getAllDayEventDisplay();
+  final eventColor = await settings.getEventColor();
+
   try {
     var taskResponse = await taskService.getByFilterString(
-      "done = false && due_date != null",
+      "done = false && due_date > 0001-01-01 00:00",
+      {
+        "filter_include_nulls": ["false"],
+      },
     );
 
-    if (!taskResponse.isSuccessful) return;
+    if (!taskResponse.isSuccessful) {
+      developer.log("Calendar sync: task fetch failed: $taskResponse");
+      return;
+    }
 
+    final plugin = DeviceCalendarPlugin();
     final mapping = await settings.getCalendarEventMap();
     final stillPresent = <int>{};
 
     for (final task in taskResponse.toSuccess().body) {
       if (task.done || !task.hasDueDate) continue;
 
-      final start = task.dueDate!;
-      final end = start.add(Duration(hours: 1));
+      final noSpecificTime = _hasNoSpecificTime(task.dueDate!);
+      if (noSpecificTime && !syncAllDayTasks) continue;
+
+      TZDateTime start;
+      TZDateTime end;
+      var allDay = false;
+
+      if (noSpecificTime) {
+        final day = TZDateTime.from(task.dueDate!, local);
+        switch (allDayEventDisplay) {
+          case AllDayEventDisplay.midnight:
+            start = TZDateTime(local, day.year, day.month, day.day);
+            end = start.add(_eventDuration);
+            break;
+          case AllDayEventDisplay.endOfDay:
+            end = TZDateTime(local, day.year, day.month, day.day, 23, 59);
+            start = end.subtract(_eventDuration);
+            break;
+          case AllDayEventDisplay.allDayEvent:
+            start = TZDateTime(local, day.year, day.month, day.day);
+            end = start.add(Duration(days: 1));
+            allDay = true;
+            break;
+        }
+      } else {
+        start = TZDateTime.from(task.dueDate!, local);
+        end = start.add(_eventDuration);
+      }
+
       final existingEventId = mapping[task.id];
 
-      if (existingEventId != null) {
-        await DeviceCalendar.instance.updateEvent(
-          eventId: existingEventId,
-          title: task.title,
-          startDate: start,
-          endDate: end,
-        );
+      final event = Event(
+        calendarId,
+        eventId: existingEventId,
+        title: task.title,
+        start: start,
+        end: end,
+        allDay: allDay,
+      )..color = eventColor;
+      final result = await plugin.createOrUpdateEvent(event);
+      if (result != null && result.isSuccess) {
+        mapping[task.id] = result.data!;
+        stillPresent.add(task.id);
       } else {
-        mapping[task.id] = await DeviceCalendar.instance.createEvent(
-          calendarId: calendarId,
-          title: task.title,
-          startDate: start,
-          endDate: end,
+        developer.log(
+          "Calendar sync: createOrUpdateEvent failed for task ${task.id}: "
+          "${result?.errors}",
         );
       }
-      stillPresent.add(task.id);
     }
 
     // Drop events for tasks that are done/deleted/no longer due.
     for (final id in mapping.keys.toList()) {
       if (!stillPresent.contains(id)) {
-        await DeviceCalendar.instance.deleteEvent(eventId: mapping[id]!);
-        mapping.remove(id);
+        final result = await plugin.deleteEvent(calendarId, mapping[id]);
+        if (result.isSuccess) {
+          mapping.remove(id);
+        } else {
+          developer.log(
+            "Calendar sync: deleteEvent failed for task $id: ${result.errors}",
+          );
+        }
       }
     }
 

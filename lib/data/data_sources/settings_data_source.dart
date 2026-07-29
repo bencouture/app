@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
+import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
 
 class SettingsDatasource {
   final FlutterSecureStorage _storage;
@@ -190,6 +191,50 @@ class SettingsDatasource {
 
   Future<void> setSyncCalendarId(String? calendarId) {
     return _storage.write(key: "sync_calendar_id", value: calendarId);
+  }
+
+  Future<bool> getSyncAllDayTasks() async {
+    return (await _storage.read(key: "calendar_sync_all_day_tasks")) == "1";
+  }
+
+  Future<void> setSyncAllDayTasks(bool value) {
+    return _storage.write(
+      key: "calendar_sync_all_day_tasks",
+      value: value ? "1" : "0",
+    );
+  }
+
+  Future<AllDayEventDisplay> getAllDayEventDisplay() async {
+    switch (await _storage.read(key: "calendar_all_day_display")) {
+      case "end_of_day":
+        return AllDayEventDisplay.endOfDay;
+      case "all_day_event":
+        return AllDayEventDisplay.allDayEvent;
+      default:
+        return AllDayEventDisplay.midnight;
+    }
+  }
+
+  Future<void> setAllDayEventDisplay(AllDayEventDisplay value) {
+    final stored = switch (value) {
+      AllDayEventDisplay.midnight => "midnight",
+      AllDayEventDisplay.endOfDay => "end_of_day",
+      AllDayEventDisplay.allDayEvent => "all_day_event",
+    };
+    return _storage.write(key: "calendar_all_day_display", value: stored);
+  }
+
+  // null means "use the calendar's default color".
+  Future<int?> getEventColor() async {
+    final stored = await _storage.read(key: "calendar_event_color");
+    return stored == null ? null : int.tryParse(stored);
+  }
+
+  Future<void> setEventColor(int? color) {
+    return _storage.write(
+      key: "calendar_event_color",
+      value: color?.toString(),
+    );
   }
 
   // task id -> device calendar event id, for syncCalendar to know which
