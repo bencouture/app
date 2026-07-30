@@ -30,21 +30,28 @@ bool _matchesDoneColor(Event event, int doneColorKey) {
   return event.colorKey == doneColorKey;
 }
 
-// EventTimingMode.sequential: same-day no-specific-time tasks get spaced-out
-// starts (midnight, midnight+15m, ...) instead of all landing at midnight.
-// Ordered by task id -- stable across syncs, so deleting one task shifts the
-// rest down a slot instead of shuffling everyone's time around.
-Map<int, TZDateTime> _sequentialStarts(Iterable<Task> tasks) {
+// Same-day tasks, grouped and sorted by id -- stable across syncs, so
+// deleting one task shifts the rest down a slot instead of shuffling
+// everyone's time around. Shared by both sequential-timing directions below.
+Iterable<List<Task>> _sameDayGroups(Iterable<Task> tasks) {
   final byDay = <DateTime, List<Task>>{};
   for (final task in tasks) {
     final due = TZDateTime.from(task.dueDate!, local);
     final day = DateTime(due.year, due.month, due.day);
     byDay.putIfAbsent(day, () => []).add(task);
   }
-
-  final starts = <int, TZDateTime>{};
   for (final dayTasks in byDay.values) {
     dayTasks.sort((a, b) => a.id.compareTo(b.id));
+  }
+  return byDay.values;
+}
+
+// EventTimingMode.sequential + AllDayEventDisplay.midnight: same-day tasks
+// get spaced-out starts (midnight, midnight+15m, ...) instead of all landing
+// on top of each other.
+Map<int, TZDateTime> _sequentialStarts(Iterable<Task> tasks) {
+  final starts = <int, TZDateTime>{};
+  for (final dayTasks in _sameDayGroups(tasks)) {
     for (var i = 0; i < dayTasks.length; i++) {
       final due = TZDateTime.from(dayTasks[i].dueDate!, local);
       starts[dayTasks[i].id] = TZDateTime(
@@ -56,6 +63,30 @@ Map<int, TZDateTime> _sequentialStarts(Iterable<Task> tasks) {
     }
   }
   return starts;
+}
+
+// EventTimingMode.sequential + AllDayEventDisplay.endOfDay: the mirror image
+// of _sequentialStarts. The last task (by the same id ordering) ends right
+// at midnight, and earlier tasks end progressively earlier working
+// backwards, instead of all landing on the same end-of-day slot.
+Map<int, TZDateTime> _sequentialEnds(Iterable<Task> tasks) {
+  final ends = <int, TZDateTime>{};
+  for (final dayTasks in _sameDayGroups(tasks)) {
+    final lastIndex = dayTasks.length - 1;
+    for (var i = 0; i < dayTasks.length; i++) {
+      final due = TZDateTime.from(dayTasks[i].dueDate!, local);
+      final midnight = TZDateTime(
+        local,
+        due.year,
+        due.month,
+        due.day,
+      ).add(const Duration(days: 1));
+      ends[dayTasks[i].id] = midnight.subtract(
+        _sequentialSlotSpacing * (lastIndex - i),
+      );
+    }
+  }
+  return ends;
 }
 
 /// One-way sync: open tasks with due dates -> one event per task on the
@@ -153,15 +184,20 @@ Future<void> syncCalendar(
       activeTasks.add(task);
     }
 
-    // Sequential timing only applies to no-specific-time tasks shown at
-    // midnight -- endOfDay/allDayEvent placements don't stack same-day tasks
-    // at one timestamp, so there'd be nothing to space out.
+    // Sequential timing only applies to midnight/endOfDay -- allDayEvent
+    // placements span the whole day each, so there's nothing to space out.
+    final noSpecificTimeTasks = activeTasks.where(
+      (t) => _hasNoSpecificTime(t.dueDate!),
+    );
     final sequentialStarts =
         eventTimingMode == EventTimingMode.sequential &&
             allDayEventDisplay == AllDayEventDisplay.midnight
-        ? _sequentialStarts(
-            activeTasks.where((t) => _hasNoSpecificTime(t.dueDate!)),
-          )
+        ? _sequentialStarts(noSpecificTimeTasks)
+        : const <int, TZDateTime>{};
+    final sequentialEnds =
+        eventTimingMode == EventTimingMode.sequential &&
+            allDayEventDisplay == AllDayEventDisplay.endOfDay
+        ? _sequentialEnds(noSpecificTimeTasks)
         : const <int, TZDateTime>{};
 
     for (final task in activeTasks) {
@@ -182,7 +218,9 @@ Future<void> syncCalendar(
             end = start.add(_eventDuration);
             break;
           case AllDayEventDisplay.endOfDay:
-            end = TZDateTime(local, day.year, day.month, day.day, 23, 59);
+            end =
+                sequentialEnds[task.id] ??
+                TZDateTime(local, day.year, day.month, day.day, 23, 59);
             start = end.subtract(_eventDuration);
             break;
           case AllDayEventDisplay.allDayEvent:

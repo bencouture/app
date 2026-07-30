@@ -291,11 +291,14 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
               if (settings.calendarSyncEnabled &&
                   settings.syncAllDayTasks &&
-                  settings.allDayEventDisplay == AllDayEventDisplay.midnight)
+                  (settings.allDayEventDisplay == AllDayEventDisplay.midnight ||
+                      settings.allDayEventDisplay == AllDayEventDisplay.endOfDay))
                 ListTile(
                   title: Text("Event creation"),
                   subtitle: Text(
-                    "How same-day tasks are spaced out at midnight",
+                    settings.allDayEventDisplay == AllDayEventDisplay.midnight
+                        ? "How same-day tasks are spaced out at midnight"
+                        : "How same-day tasks are spaced out at end of day",
                   ),
                   trailing: DropdownButton<EventTimingMode>(
                     value: settings.eventTimingMode,

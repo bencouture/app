@@ -410,14 +410,14 @@ void main() {
   });
 
   testWidgets(
-    'event creation row is hidden for non-midnight display modes',
+    'event creation row is hidden for the all-day-event display mode',
     (tester) async {
       await _pumpSettingsPage(
         tester,
         _initialState(
           calendarSyncEnabled: true,
           syncAllDayTasks: true,
-          allDayEventDisplay: AllDayEventDisplay.endOfDay,
+          allDayEventDisplay: AllDayEventDisplay.allDayEvent,
         ),
       );
       expect(find.text('Event creation'), findsNothing);
@@ -433,6 +433,22 @@ void main() {
           calendarSyncEnabled: true,
           syncAllDayTasks: true,
           allDayEventDisplay: AllDayEventDisplay.midnight,
+        ),
+      );
+      await _scrollTo(tester, find.text('Event creation'));
+      expect(find.text('Event creation'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'event creation row shows for the end-of-day display mode',
+    (tester) async {
+      await _pumpSettingsPage(
+        tester,
+        _initialState(
+          calendarSyncEnabled: true,
+          syncAllDayTasks: true,
+          allDayEventDisplay: AllDayEventDisplay.endOfDay,
         ),
       );
       await _scrollTo(tester, find.text('Event creation'));

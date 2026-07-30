@@ -472,12 +472,13 @@ void main() {
   );
 
   test(
-    'ignores sequential mode for end-of-day and all-day displays',
+    'spaces out same-day no-specific-time tasks working backwards from '
+    'midnight in sequential end-of-day mode',
     () async {
       final dueDate = DateTime.utc(2030, 1, 1);
       final tasks = [
-        _task(id: 1, done: false, dueDate: dueDate),
         _task(id: 2, done: false, dueDate: dueDate),
+        _task(id: 1, done: false, dueDate: dueDate),
       ];
       final settings = _FakeSettingsDatasource(
         syncAllDayTasks: true,
@@ -487,13 +488,42 @@ void main() {
 
       await syncCalendar(_FakeTaskRepository(tasks), settings);
 
+      final endByTitle = <String, DateTime>{
+        for (var i = 0; i < createdTitles.length; i++)
+          createdTitles[i]: DateTime.fromMillisecondsSinceEpoch(
+            createdEvents[i]['eventEndDate'] as int,
+            isUtc: true,
+          ),
+      };
+      // The last task by id (2) ends right at midnight -- rolled over to
+      // the next day -- and task 1 ends 15 minutes earlier, same day.
+      expect(endByTitle['Task 2']!.day, 2);
+      expect(endByTitle['Task 2']!.hour, 0);
+      expect(endByTitle['Task 2']!.minute, 0);
+      expect(endByTitle['Task 1']!.day, 1);
+      expect(endByTitle['Task 1']!.hour, 23);
+      expect(endByTitle['Task 1']!.minute, 45);
+    },
+  );
+
+  test(
+    'ignores sequential mode for the all-day-event display',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [
+        _task(id: 1, done: false, dueDate: dueDate),
+        _task(id: 2, done: false, dueDate: dueDate),
+      ];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.allDayEvent,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(_FakeTaskRepository(tasks), settings);
+
       for (final event in createdEvents) {
-        final end = DateTime.fromMillisecondsSinceEpoch(
-          event['eventEndDate'] as int,
-          isUtc: true,
-        );
-        expect(end.hour, 23);
-        expect(end.minute, 59);
+        expect(event['eventAllDay'], isTrue);
       }
     },
   );
