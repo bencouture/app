@@ -192,8 +192,15 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                       final calendars = (snapshot.data?.data ?? const [])
                           .where((c) => c.isReadOnly != true)
                           .toList();
+                      // Until retrieveCalendars() resolves, calendars is
+                      // still empty -- passing a value DropdownButton can't
+                      // find among its items throws an assertion error, so
+                      // fall back to the hint for that one frame.
+                      final knownCalendarId = calendars.any(
+                        (c) => c.id == settings.syncCalendarId,
+                      );
                       return DropdownButton<String>(
-                        value: settings.syncCalendarId,
+                        value: knownCalendarId ? settings.syncCalendarId : null,
                         hint: Text("Select calendar"),
                         items: [
                           ...calendars.map(
@@ -312,8 +319,17 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     future: _retrieveDoneColorOptions(settings.syncCalendarId),
                     builder: (context, snapshot) {
                       final colors = snapshot.data ?? const <EventColor>[];
+                      // On iOS (and while colors are still loading on
+                      // Android) the configured doneColorKey may never
+                      // appear here -- same DropdownButton assertion risk
+                      // as the calendar picker above, but permanent rather
+                      // than one frame, since retrieveEventColors always
+                      // returns null on non-Android.
+                      final knownDoneColorKey =
+                          settings.doneColorKey == null ||
+                          colors.any((c) => c.colorKey == settings.doneColorKey);
                       return DropdownButton<int?>(
-                        value: settings.doneColorKey,
+                        value: knownDoneColorKey ? settings.doneColorKey : null,
                         items: [
                           DropdownMenuItem(value: null, child: Text("None")),
                           ...colors.map(
