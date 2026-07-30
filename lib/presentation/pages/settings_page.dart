@@ -45,6 +45,46 @@ const _eventTimingLabels = {
 // there shows up without the user needing to leave and reopen Settings.
 const _colorRefreshInterval = Duration(seconds: 30);
 
+// Google event colors, keyed by RGB (not colorKey -- Google's June 2026
+// update unified event colors with the older 24-color calendar palette, and
+// also added a full custom RGB picker with no published names, so colorKey
+// numbering is no longer a reliable name key). CalendarContract.Colors and
+// the Calendar API only return raw RGB, never a name, so this table is
+// hardcoded from Google's documented "Modern" calendar color set. Anything
+// not in this table (a custom RGB pick) has no known name and falls back to
+// "Color N".
+const _googleEventColorNames = {
+  0xFF795548: "Cocoa",
+  0xFFE67C73: "Flamingo",
+  0xFFD50000: "Tomato",
+  0xFFF4511E: "Tangerine",
+  0xFFEF6C00: "Pumpkin",
+  0xFFF09300: "Mango",
+  0xFF009688: "Eucalyptus",
+  0xFF0B8043: "Basil",
+  0xFF7CB342: "Pistachio",
+  0xFFC0CA33: "Avocado",
+  0xFFE4C441: "Citron",
+  0xFFF6BF26: "Banana",
+  0xFF33B679: "Sage",
+  0xFF039BE5: "Peacock",
+  0xFF4285F4: "Cobalt",
+  0xFF3F51B5: "Blueberry",
+  0xFF7986CB: "Lavender",
+  0xFFB39DDB: "Wisteria",
+  0xFF616161: "Graphite",
+  0xFFA79B8E: "Birch",
+  0xFFAD1457: "Radicchio",
+  0xFFD81B60: "Cherry Blossom",
+  0xFF8E24AA: "Grape",
+  0xFF9E69AF: "Amethyst",
+};
+
+String _eventColorLabel(EventColor c) {
+  final rgb = c.color | 0xFF000000;
+  return _googleEventColorNames[rgb] ?? "Color ${c.colorKey}";
+}
+
 // The only real source of "what colors can an event be" -- device_calendar
 // has no platform-independent list. retrieveEventColors needs the actual
 // Calendar (for its accountName), not just the id syncCalendarId stores, and
@@ -373,7 +413,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                       shape: BoxShape.circle,
                                     ),
                                   ),
-                                  Text("Color ${c.colorKey}"),
+                                  Text(_eventColorLabel(c)),
                                 ],
                               ),
                             ),
@@ -433,7 +473,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                                       shape: BoxShape.circle,
                                     ),
                                   ),
-                                  Text("Color ${c.colorKey}"),
+                                  Text(_eventColorLabel(c)),
                                 ],
                               ),
                             ),
