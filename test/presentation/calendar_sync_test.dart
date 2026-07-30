@@ -507,6 +507,111 @@ void main() {
   );
 
   test(
+    'a single sequential end-of-day task ends exactly at midnight, not 23:59',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.endOfDay,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(_FakeTaskRepository(tasks), settings);
+
+      final end = DateTime.fromMillisecondsSinceEpoch(
+        createdEvents.single['eventEndDate'] as int,
+        isUtc: true,
+      );
+      expect(end.day, 2);
+      expect(end.hour, 0);
+      expect(end.minute, 0);
+    },
+  );
+
+  test(
+    'end-of-day sequential slots shift down once a task drops out of the sync',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.endOfDay,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(
+        _FakeTaskRepository([
+          _task(id: 1, done: false, dueDate: dueDate),
+          _task(id: 2, done: false, dueDate: dueDate),
+        ]),
+        settings,
+      );
+      createdEvents.clear();
+      createdTitles.clear();
+
+      // Task 2 (the midnight slot) is gone -- task 1 should move into the
+      // midnight slot instead of staying at its old -15m offset.
+      await syncCalendar(
+        _FakeTaskRepository([_task(id: 1, done: false, dueDate: dueDate)]),
+        settings,
+      );
+
+      expect(createdTitles, ['Task 1']);
+      final end = DateTime.fromMillisecondsSinceEpoch(
+        createdEvents.single['eventEndDate'] as int,
+        isUtc: true,
+      );
+      expect(end.day, 2);
+      expect(end.hour, 0);
+      expect(end.minute, 0);
+    },
+  );
+
+  test(
+    'reschedules existing end-of-day events in place when switching '
+    'simultaneous to sequential',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [
+        _task(id: 1, done: false, dueDate: dueDate),
+        _task(id: 2, done: false, dueDate: dueDate),
+      ];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.endOfDay,
+        eventTimingMode: EventTimingMode.simultaneous,
+      );
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+      final eventIdByTask = Map.of(settings.eventMap);
+      createdEvents.clear();
+      createdTitles.clear();
+
+      settings.eventTimingMode = EventTimingMode.sequential;
+      await syncCalendar(taskRepository, settings);
+
+      expect(deletedIds, isEmpty);
+      for (var i = 0; i < createdTitles.length; i++) {
+        final taskId = createdTitles[i] == 'Task 1' ? 1 : 2;
+        expect(createdEvents[i]['eventId'], eventIdByTask[taskId]);
+      }
+
+      final endByTitle = <String, DateTime>{
+        for (var i = 0; i < createdTitles.length; i++)
+          createdTitles[i]: DateTime.fromMillisecondsSinceEpoch(
+            createdEvents[i]['eventEndDate'] as int,
+            isUtc: true,
+          ),
+      };
+      expect(endByTitle['Task 2']!.hour, 0);
+      expect(endByTitle['Task 2']!.minute, 0);
+      expect(endByTitle['Task 1']!.hour, 23);
+      expect(endByTitle['Task 1']!.minute, 45);
+    },
+  );
+
+  test(
     'ignores sequential mode for the all-day-event display',
     () async {
       final dueDate = DateTime.utc(2030, 1, 1);
