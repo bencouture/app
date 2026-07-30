@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +14,7 @@ import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/core/utils/language_autonyms.dart';
 import 'package:vikunja_app/core/utils/user_extensions.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
 import 'package:vikunja_app/domain/entities/version.dart';
@@ -32,22 +35,25 @@ const _allDayDisplayLabels = {
   AllDayEventDisplay.allDayEvent: 'As an all-day event',
 };
 
-// A basic swatch, not a full picker -- null means "use the calendar's
-// default color".
-final _eventColorOptions = <String, int?>{
-  'Default': null,
-  'Red': Colors.red.toARGB32(),
-  'Orange': Colors.orange.toARGB32(),
-  'Yellow': Colors.yellow.shade700.toARGB32(),
-  'Green': Colors.green.toARGB32(),
-  'Blue': Colors.blue.toARGB32(),
-  'Purple': Colors.purple.toARGB32(),
+const _eventTimingLabels = {
+  EventTimingMode.simultaneous: 'All at the same time',
+  EventTimingMode.sequential: 'Sequential (15 minutes apart)',
 };
 
-// retrieveEventColors needs the actual Calendar (for its accountName), not
-// just the id syncCalendarId stores -- returns [] on iOS/non-Google
-// calendars, same as the plugin itself.
-Future<List<EventColor>> _retrieveDoneColorOptions(String? calendarId) async {
+// The event color palette lives in the calendar app, not Vikunja -- refetch
+// periodically while this page is open so a color added/renamed/removed
+// there shows up without the user needing to leave and reopen Settings.
+const _colorRefreshInterval = Duration(seconds: 30);
+
+// The only real source of "what colors can an event be" -- device_calendar
+// has no platform-independent list. retrieveEventColors needs the actual
+// Calendar (for its accountName), not just the id syncCalendarId stores, and
+// only returns entries for Google-synced Android calendars: null on iOS
+// (EventKit has no per-event color at all) or [] for a local calendar with
+// no account color table. There's no honest raw-color fallback for those
+// cases -- a hardcoded swatch value doesn't correspond to any real palette
+// slot, so Google Calendar just ignores it on the next sync.
+Future<List<EventColor>> _retrieveEventColorOptions(String? calendarId) async {
   if (calendarId == null) return [];
   final calendarsResult = await DeviceCalendarPlugin().retrieveCalendars();
   final calendar = (calendarsResult.data ?? const [])
@@ -67,8 +73,23 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class SettingsPageState extends ConsumerState<SettingsPage> {
   final TextEditingController durationTextController = TextEditingController();
+  late final Timer _colorRefreshTimer;
 
   Version? newestVersion;
+
+  @override
+  void initState() {
+    super.initState();
+    _colorRefreshTimer = Timer.periodic(_colorRefreshInterval, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _colorRefreshTimer.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -268,67 +289,119 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                     },
                   ),
                 ),
-              if (settings.calendarSyncEnabled)
+              if (settings.calendarSyncEnabled &&
+                  settings.syncAllDayTasks &&
+                  settings.allDayEventDisplay == AllDayEventDisplay.midnight)
                 ListTile(
-                  title: Text("Event color"),
-                  trailing: DropdownButton<int?>(
-                    value: settings.eventColor,
-                    items: _eventColorOptions.entries
+                  title: Text("Event creation"),
+                  subtitle: Text(
+                    "How same-day tasks are spaced out at midnight",
+                  ),
+                  trailing: DropdownButton<EventTimingMode>(
+                    value: settings.eventTimingMode,
+                    items: _eventTimingLabels.entries
                         .map(
                           (e) => DropdownMenuItem(
-                            value: e.value,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 16,
-                                  height: 16,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: e.value != null
-                                        ? Color(e.value!)
-                                        : null,
-                                    border: Border.all(
-                                      color: Theme.of(context).dividerColor,
-                                    ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                Text(e.key),
-                              ],
-                            ),
+                            value: e.key,
+                            child: Text(e.value),
                           ),
                         )
                         .toList(),
                     onChanged: (value) async {
+                      if (value == null) return;
                       await ref
                           .read(settingsControllerProvider.notifier)
-                          .setEventColor(value);
+                          .setEventTimingMode(value);
                       await syncCalendar(ref.read(taskRepositoryProvider));
                     },
                   ),
                 ),
               if (settings.calendarSyncEnabled)
-                ListTile(
-                  title: Text("Mark done via color"),
-                  subtitle: Text(
-                    "Setting a synced event to this color closes the task "
-                    "and removes the event. Google Calendar on Android only.",
-                  ),
-                  trailing: FutureBuilder(
-                    future: _retrieveDoneColorOptions(settings.syncCalendarId),
-                    builder: (context, snapshot) {
-                      final colors = snapshot.data ?? const <EventColor>[];
-                      // On iOS (and while colors are still loading on
-                      // Android) the configured doneColorKey may never
-                      // appear here -- same DropdownButton assertion risk
-                      // as the calendar picker above, but permanent rather
-                      // than one frame, since retrieveEventColors always
-                      // returns null on non-Android.
-                      final knownDoneColorKey =
-                          settings.doneColorKey == null ||
-                          colors.any((c) => c.colorKey == settings.doneColorKey);
-                      return DropdownButton<int?>(
+                FutureBuilder(
+                  future: _retrieveEventColorOptions(settings.syncCalendarId),
+                  builder: (context, snapshot) {
+                    // No idiomatic reason to show a picker that can only
+                    // ever offer "Default" -- hide the row entirely rather
+                    // than expose a dead control (iOS, a local calendar
+                    // with no color table, or still loading).
+                    final colors = snapshot.data;
+                    if (colors == null || colors.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    // The configured eventColorKey may not appear in a
+                    // freshly refetched palette (color renamed/removed in
+                    // the calendar app) -- DropdownButton asserts if value
+                    // isn't among items, so fall back to null rather than
+                    // crash.
+                    final knownEventColorKey =
+                        settings.eventColorKey == null ||
+                        colors.any((c) => c.colorKey == settings.eventColorKey);
+                    return ListTile(
+                      title: Text("Event color"),
+                      trailing: DropdownButton<int?>(
+                        value: knownEventColorKey ? settings.eventColorKey : null,
+                        items: [
+                          DropdownMenuItem(
+                            value: null,
+                            child: Text("Default"),
+                          ),
+                          ...colors.map(
+                            (c) => DropdownMenuItem(
+                              value: c.colorKey,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Color(c.color),
+                                      border: Border.all(
+                                        color: Theme.of(context).dividerColor,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Text("Color ${c.colorKey}"),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) async {
+                          final selection = value == null
+                              ? null
+                              : colors.firstWhereOrNull(
+                                  (c) => c.colorKey == value,
+                                );
+                          await ref
+                              .read(settingsControllerProvider.notifier)
+                              .setEventColor(selection);
+                          await syncCalendar(ref.read(taskRepositoryProvider));
+                        },
+                      ),
+                    );
+                  },
+                ),
+              if (settings.calendarSyncEnabled)
+                FutureBuilder(
+                  future: _retrieveEventColorOptions(settings.syncCalendarId),
+                  builder: (context, snapshot) {
+                    final colors = snapshot.data;
+                    if (colors == null || colors.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    final knownDoneColorKey =
+                        settings.doneColorKey == null ||
+                        colors.any((c) => c.colorKey == settings.doneColorKey);
+                    return ListTile(
+                      title: Text("Mark done via color"),
+                      subtitle: Text(
+                        "Setting a synced event to this color closes the "
+                        "task and removes the event.",
+                      ),
+                      trailing: DropdownButton<int?>(
                         value: knownDoneColorKey ? settings.doneColorKey : null,
                         items: [
                           DropdownMenuItem(value: null, child: Text("None")),
@@ -361,9 +434,9 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                               .read(settingsControllerProvider.notifier)
                               .setDoneColorKey(value);
                         },
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
               Divider(),
               CheckboxListTile(

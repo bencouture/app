@@ -1,3 +1,4 @@
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vikunja_app/core/di/network_provider.dart';
@@ -5,6 +6,7 @@ import 'package:vikunja_app/core/di/repository_provider.dart';
 import 'package:vikunja_app/core/network/response.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
 import 'package:vikunja_app/domain/entities/version.dart';
@@ -19,7 +21,9 @@ class _FakeSettingsRepository implements SettingsRepository {
   bool syncAllDayTasks;
   AllDayEventDisplay allDayEventDisplay;
   int? eventColor;
+  int? eventColorKey;
   int? doneColorKey;
+  EventTimingMode eventTimingMode;
 
   _FakeSettingsRepository({
     this.calendarSyncEnabled = false,
@@ -27,7 +31,9 @@ class _FakeSettingsRepository implements SettingsRepository {
     this.syncAllDayTasks = false,
     this.allDayEventDisplay = AllDayEventDisplay.midnight,
     this.eventColor,
+    this.eventColorKey,
     this.doneColorKey,
+    this.eventTimingMode = EventTimingMode.simultaneous,
   });
 
   // getAll() reads every settings field regardless of what a given test
@@ -159,11 +165,27 @@ class _FakeSettingsRepository implements SettingsRepository {
   }
 
   @override
+  Future<int?> getEventColorKey() async => eventColorKey;
+
+  @override
+  Future<void> setEventColorKey(int? colorKey) async {
+    eventColorKey = colorKey;
+  }
+
+  @override
   Future<int?> getDoneColorKey() async => doneColorKey;
 
   @override
   Future<void> setDoneColorKey(int? colorKey) async {
     doneColorKey = colorKey;
+  }
+
+  @override
+  Future<EventTimingMode> getEventTimingMode() async => eventTimingMode;
+
+  @override
+  Future<void> setEventTimingMode(EventTimingMode value) async {
+    eventTimingMode = value;
   }
 }
 
@@ -250,18 +272,38 @@ void main() {
     );
   });
 
-  test('setEventColor persists and refreshes state', () async {
+  test('setEventColor persists color and colorKey together and refreshes state', () async {
     final container = createContainer();
     final controller = container.read(settingsControllerProvider.notifier);
     await container.read(settingsControllerProvider.future);
 
-    await controller.setEventColor(0xFF00FF00);
+    await controller.setEventColor(EventColor(0xFF00FF00, 5));
 
     expect(fakeSettingsRepository.eventColor, 0xFF00FF00);
+    expect(fakeSettingsRepository.eventColorKey, 5);
     expect(
       container.read(settingsControllerProvider).value?.eventColor,
       0xFF00FF00,
     );
+    expect(
+      container.read(settingsControllerProvider).value?.eventColorKey,
+      5,
+    );
+  });
+
+  test('setEventColor clears both color and colorKey when passed null', () async {
+    fakeSettingsRepository = _FakeSettingsRepository(
+      eventColor: 0xFF00FF00,
+      eventColorKey: 5,
+    );
+    final container = createContainer();
+    final controller = container.read(settingsControllerProvider.notifier);
+    await container.read(settingsControllerProvider.future);
+
+    await controller.setEventColor(null);
+
+    expect(fakeSettingsRepository.eventColor, isNull);
+    expect(fakeSettingsRepository.eventColorKey, isNull);
   });
 
   test('setDoneColorKey persists and refreshes state', () async {
@@ -285,7 +327,9 @@ void main() {
       syncAllDayTasks: true,
       allDayEventDisplay: AllDayEventDisplay.endOfDay,
       eventColor: 0xFFFF0000,
+      eventColorKey: 2,
       doneColorKey: 3,
+      eventTimingMode: EventTimingMode.sequential,
     );
     final container = createContainer();
 
@@ -296,7 +340,23 @@ void main() {
     expect(state.syncAllDayTasks, isTrue);
     expect(state.allDayEventDisplay, AllDayEventDisplay.endOfDay);
     expect(state.eventColor, 0xFFFF0000);
+    expect(state.eventColorKey, 2);
     expect(state.doneColorKey, 3);
+    expect(state.eventTimingMode, EventTimingMode.sequential);
+  });
+
+  test('setEventTimingMode persists and refreshes state', () async {
+    final container = createContainer();
+    final controller = container.read(settingsControllerProvider.notifier);
+    await container.read(settingsControllerProvider.future);
+
+    await controller.setEventTimingMode(EventTimingMode.sequential);
+
+    expect(fakeSettingsRepository.eventTimingMode, EventTimingMode.sequential);
+    expect(
+      container.read(settingsControllerProvider).value?.eventTimingMode,
+      EventTimingMode.sequential,
+    );
   });
 }
 

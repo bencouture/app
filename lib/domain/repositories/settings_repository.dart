@@ -1,5 +1,6 @@
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 
 abstract class SettingsRepository {
   Future<bool> getIgnoreCertificates();
@@ -78,7 +79,15 @@ abstract class SettingsRepository {
 
   Future<void> setEventColor(int? color);
 
+  Future<int?> getEventColorKey();
+
+  Future<void> setEventColorKey(int? colorKey);
+
   Future<int?> getDoneColorKey();
 
   Future<void> setDoneColorKey(int? colorKey);
+
+  Future<EventTimingMode> getEventTimingMode();
+
+  Future<void> setEventTimingMode(EventTimingMode value);
 }

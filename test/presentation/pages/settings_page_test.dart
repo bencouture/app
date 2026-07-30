@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/settings_page_state.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
@@ -67,15 +69,27 @@ class _RecordingSettingsController extends SettingsController {
   }
 
   @override
-  Future<void> setEventColor(int? color) async {
-    calls.add('setEventColor($color)');
-    _apply(_copyWith(model, eventColor: () => color));
+  Future<void> setEventColor(EventColor? selection) async {
+    calls.add('setEventColor(${selection?.color}, ${selection?.colorKey})');
+    _apply(
+      _copyWith(
+        model,
+        eventColor: () => selection?.color,
+        eventColorKey: () => selection?.colorKey,
+      ),
+    );
   }
 
   @override
   Future<void> setDoneColorKey(int? colorKey) async {
     calls.add('setDoneColorKey($colorKey)');
     _apply(_copyWith(model, doneColorKey: () => colorKey));
+  }
+
+  @override
+  Future<void> setEventTimingMode(EventTimingMode value) async {
+    calls.add('setEventTimingMode($value)');
+    _apply(_copyWith(model, eventTimingMode: value));
   }
 }
 
@@ -89,7 +103,9 @@ SettingsPageState _copyWith(
   bool? syncAllDayTasks,
   AllDayEventDisplay? allDayEventDisplay,
   int? Function()? eventColor,
+  int? Function()? eventColorKey,
   int? Function()? doneColorKey,
+  EventTimingMode? eventTimingMode,
 }) {
   return SettingsPageState(
     state.user,
@@ -105,7 +121,9 @@ SettingsPageState _copyWith(
     syncAllDayTasks ?? state.syncAllDayTasks,
     allDayEventDisplay ?? state.allDayEventDisplay,
     eventColor != null ? eventColor() : state.eventColor,
+    eventColorKey != null ? eventColorKey() : state.eventColorKey,
     doneColorKey != null ? doneColorKey() : state.doneColorKey,
+    eventTimingMode ?? state.eventTimingMode,
     state.currentVersion,
   );
 }
@@ -116,7 +134,9 @@ SettingsPageState _initialState({
   bool syncAllDayTasks = false,
   AllDayEventDisplay allDayEventDisplay = AllDayEventDisplay.midnight,
   int? eventColor,
+  int? eventColorKey,
   int? doneColorKey,
+  EventTimingMode eventTimingMode = EventTimingMode.simultaneous,
 }) {
   return SettingsPageState(
     // Empty username keeps the user-header's CircleAvatar from attempting a
@@ -135,7 +155,9 @@ SettingsPageState _initialState({
     syncAllDayTasks,
     allDayEventDisplay,
     eventColor,
+    eventColorKey,
     doneColorKey,
+    eventTimingMode,
     null,
   );
 }
@@ -240,6 +262,7 @@ void main() {
     expect(find.text('Sync calendar'), findsNothing);
     expect(find.text('Sync all-day tasks'), findsNothing);
     expect(find.text('Show all-day tasks as'), findsNothing);
+    expect(find.text('Event creation'), findsNothing);
     expect(find.text('Event color'), findsNothing);
     expect(find.text('Mark done via color'), findsNothing);
   });
@@ -274,10 +297,13 @@ void main() {
 
     expect(controller.calls, ['setCalendarSyncEnabled(true)']);
     expect(find.text('Sync calendar'), findsOneWidget);
-    await _scrollTo(tester, find.text('Event color'));
-    expect(find.text('Event color'), findsOneWidget);
-    await _scrollTo(tester, find.text('Mark done via color'));
-    expect(find.text('Mark done via color'), findsOneWidget);
+    // Event color / Mark done via color hide themselves entirely rather
+    // than show a picker that can only ever offer "Default"/"None" --
+    // retrieveEventColors always returns null on this non-Android test
+    // host, same structural limitation device_calendar's own test suite
+    // documents, so these can never render here.
+    expect(find.text('Event color'), findsNothing);
+    expect(find.text('Mark done via color'), findsNothing);
     // syncAllDayTasks is still false, so this row stays hidden.
     expect(find.text('Show all-day tasks as'), findsNothing);
   });
@@ -383,48 +409,99 @@ void main() {
     ]);
   });
 
-  testWidgets('changing the event color persists the new value', (
+  testWidgets(
+    'event creation row is hidden for non-midnight display modes',
+    (tester) async {
+      await _pumpSettingsPage(
+        tester,
+        _initialState(
+          calendarSyncEnabled: true,
+          syncAllDayTasks: true,
+          allDayEventDisplay: AllDayEventDisplay.endOfDay,
+        ),
+      );
+      expect(find.text('Event creation'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'event creation row shows for the midnight display mode',
+    (tester) async {
+      await _pumpSettingsPage(
+        tester,
+        _initialState(
+          calendarSyncEnabled: true,
+          syncAllDayTasks: true,
+          allDayEventDisplay: AllDayEventDisplay.midnight,
+        ),
+      );
+      await _scrollTo(tester, find.text('Event creation'));
+      expect(find.text('Event creation'), findsOneWidget);
+    },
+  );
+
+  testWidgets('changing event creation to sequential persists the new value', (
     tester,
   ) async {
     final controller = await _pumpSettingsPage(
       tester,
-      _initialState(calendarSyncEnabled: true),
+      _initialState(
+        calendarSyncEnabled: true,
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.midnight,
+      ),
     );
 
-    final eventColorDropdown = find.descendant(
-      of: find.widgetWithText(ListTile, 'Event color'),
-      matching: find.byType(DropdownButton<int?>),
+    final timingDropdown = find.descendant(
+      of: find.widgetWithText(ListTile, 'Event creation'),
+      matching: find.byType(DropdownButton<EventTimingMode>),
     );
-    await _scrollTo(tester, eventColorDropdown);
-    await tester.tap(eventColorDropdown);
+    await _scrollTo(tester, timingDropdown);
+    await tester.tap(timingDropdown);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Red').hitTestable());
+    await tester.tap(find.text('Sequential (15 minutes apart)').hitTestable());
     await tester.pumpAndSettle();
 
-    expect(controller.calls, hasLength(1));
-    expect(controller.calls.single, startsWith('setEventColor('));
+    expect(controller.calls, [
+      'setEventTimingMode(EventTimingMode.sequential)',
+    ]);
   });
 
-  testWidgets('clearing the done-color selection persists null', (
-    tester,
-  ) async {
-    final controller = await _pumpSettingsPage(
-      tester,
-      _initialState(calendarSyncEnabled: true, doneColorKey: 7),
-    );
+  // Event color / Mark done via color hide themselves entirely when
+  // retrieveEventColors has no palette to offer -- true on iOS, on a local
+  // (non-Google) calendar, and (the only case reachable from this test
+  // suite) always true on this non-Android host, since retrieveEventColors
+  // returns null before ever touching its platform channel. That means the
+  // interactive selection path (tap dropdown, pick a color) can't be
+  // exercised here -- same structural gap device_calendar's own test suite
+  // documents for the same method. What *is* testable, and matters just as
+  // much: a previously-configured selection must not make the row crash or
+  // force itself visible once the palette it came from is gone.
+  testWidgets(
+    'event color row stays hidden even with a previously configured selection',
+    (tester) async {
+      await _pumpSettingsPage(
+        tester,
+        _initialState(
+          calendarSyncEnabled: true,
+          eventColor: 0xFFFF0000,
+          eventColorKey: 7,
+        ),
+      );
 
-    final doneColorDropdown = find.descendant(
-      of: find.widgetWithText(ListTile, 'Mark done via color'),
-      matching: find.byType(DropdownButton<int?>),
-    );
-    await _scrollTo(tester, doneColorDropdown);
-    await tester.tap(doneColorDropdown);
-    await tester.pumpAndSettle();
-    // "None" is always present regardless of platform/account -- the
-    // account-specific color palette only loads on Android at runtime.
-    await tester.tap(find.text('None').hitTestable());
-    await tester.pumpAndSettle();
+      expect(find.text('Event color'), findsNothing);
+    },
+  );
 
-    expect(controller.calls, ['setDoneColorKey(null)']);
-  });
+  testWidgets(
+    'done color row stays hidden even with a previously configured selection',
+    (tester) async {
+      await _pumpSettingsPage(
+        tester,
+        _initialState(calendarSyncEnabled: true, doneColorKey: 7),
+      );
+
+      expect(find.text('Mark done via color'), findsNothing);
+    },
+  );
 }

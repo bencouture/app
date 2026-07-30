@@ -4,11 +4,16 @@ import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
+import 'package:vikunja_app/domain/entities/task.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
 
 // Tasks carry no duration of their own (Vikunja's due date is a point in
 // time), so every synced event gets the same short placeholder block.
 const _eventDuration = Duration(minutes: 10);
+
+// Spacing between same-day no-specific-time events in EventTimingMode.sequential.
+const _sequentialSlotSpacing = Duration(minutes: 15);
 
 // Vikunja represents "due today, no specific time" as midnight UTC -- there
 // is no separate all-day flag to check.
@@ -23,6 +28,34 @@ bool _hasNoSpecificTime(DateTime due) {
 // on iOS.
 bool _matchesDoneColor(Event event, int doneColorKey) {
   return event.colorKey == doneColorKey;
+}
+
+// EventTimingMode.sequential: same-day no-specific-time tasks get spaced-out
+// starts (midnight, midnight+15m, ...) instead of all landing at midnight.
+// Ordered by task id -- stable across syncs, so deleting one task shifts the
+// rest down a slot instead of shuffling everyone's time around.
+Map<int, TZDateTime> _sequentialStarts(Iterable<Task> tasks) {
+  final byDay = <DateTime, List<Task>>{};
+  for (final task in tasks) {
+    final due = TZDateTime.from(task.dueDate!, local);
+    final day = DateTime(due.year, due.month, due.day);
+    byDay.putIfAbsent(day, () => []).add(task);
+  }
+
+  final starts = <int, TZDateTime>{};
+  for (final dayTasks in byDay.values) {
+    dayTasks.sort((a, b) => a.id.compareTo(b.id));
+    for (var i = 0; i < dayTasks.length; i++) {
+      final due = TZDateTime.from(dayTasks[i].dueDate!, local);
+      starts[dayTasks[i].id] = TZDateTime(
+        local,
+        due.year,
+        due.month,
+        due.day,
+      ).add(_sequentialSlotSpacing * i);
+    }
+  }
+  return starts;
 }
 
 /// One-way sync: open tasks with due dates -> one event per task on the
@@ -48,7 +81,9 @@ Future<void> syncCalendar(
   final syncAllDayTasks = await settings.getSyncAllDayTasks();
   final allDayEventDisplay = await settings.getAllDayEventDisplay();
   final eventColor = await settings.getEventColor();
+  final eventColorKey = await settings.getEventColorKey();
   final doneColorKey = await settings.getDoneColorKey();
+  final eventTimingMode = await settings.getEventTimingMode();
 
   try {
     var taskResponse = await taskService.getByFilterString(
@@ -87,6 +122,10 @@ Future<void> syncCalendar(
       }
     }
 
+    // Phase 1: apply calendar-side done reversals and drop tasks that won't
+    // get an event at all, so the sequential ordering below only ever sees
+    // tasks that are actually going to be scheduled.
+    final activeTasks = <Task>[];
     for (final task in taskResponse.toSuccess().body) {
       if (task.done || !task.hasDueDate) continue;
 
@@ -109,8 +148,25 @@ Future<void> syncCalendar(
         );
       }
 
+      if (_hasNoSpecificTime(task.dueDate!) && !syncAllDayTasks) continue;
+
+      activeTasks.add(task);
+    }
+
+    // Sequential timing only applies to no-specific-time tasks shown at
+    // midnight -- endOfDay/allDayEvent placements don't stack same-day tasks
+    // at one timestamp, so there'd be nothing to space out.
+    final sequentialStarts =
+        eventTimingMode == EventTimingMode.sequential &&
+            allDayEventDisplay == AllDayEventDisplay.midnight
+        ? _sequentialStarts(
+            activeTasks.where((t) => _hasNoSpecificTime(t.dueDate!)),
+          )
+        : const <int, TZDateTime>{};
+
+    for (final task in activeTasks) {
+      final existingEventId = mapping[task.id];
       final noSpecificTime = _hasNoSpecificTime(task.dueDate!);
-      if (noSpecificTime && !syncAllDayTasks) continue;
 
       TZDateTime start;
       TZDateTime end;
@@ -120,7 +176,9 @@ Future<void> syncCalendar(
         final day = TZDateTime.from(task.dueDate!, local);
         switch (allDayEventDisplay) {
           case AllDayEventDisplay.midnight:
-            start = TZDateTime(local, day.year, day.month, day.day);
+            start =
+                sequentialStarts[task.id] ??
+                TZDateTime(local, day.year, day.month, day.day);
             end = start.add(_eventDuration);
             break;
           case AllDayEventDisplay.endOfDay:
@@ -145,7 +203,11 @@ Future<void> syncCalendar(
         start: start,
         end: end,
         allDay: allDay,
-      )..color = eventColor;
+      )..updateEventColor(
+          eventColor != null && eventColorKey != null
+              ? EventColor(eventColor, eventColorKey)
+              : null,
+        );
       final result = await plugin.createOrUpdateEvent(event);
       if (result != null && result.isSuccess) {
         mapping[task.id] = result.data!;

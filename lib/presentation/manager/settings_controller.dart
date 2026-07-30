@@ -1,3 +1,4 @@
+import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:vikunja_app/core/di/network_provider.dart';
@@ -5,6 +6,7 @@ import 'package:vikunja_app/core/di/repository_provider.dart';
 import 'package:vikunja_app/core/di/theme_provider.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/entities/project.dart';
 import 'package:vikunja_app/domain/entities/settings_page_state.dart';
 import 'package:workmanager/workmanager.dart';
@@ -55,9 +57,15 @@ class SettingsController extends _$SettingsController {
     var eventColor = await ref
         .read(settingsRepositoryProvider)
         .getEventColor();
+    var eventColorKey = await ref
+        .read(settingsRepositoryProvider)
+        .getEventColorKey();
     var doneColorKey = await ref
         .read(settingsRepositoryProvider)
         .getDoneColorKey();
+    var eventTimingMode = await ref
+        .read(settingsRepositoryProvider)
+        .getEventTimingMode();
 
     var version = await ref
         .read(versionRepositoryProvider)
@@ -84,7 +92,9 @@ class SettingsController extends _$SettingsController {
       syncAllDayTasks,
       allDayEventDisplay,
       eventColor,
+      eventColorKey,
       doneColorKey,
+      eventTimingMode,
       version,
     );
   }
@@ -155,13 +165,22 @@ class SettingsController extends _$SettingsController {
     state = AsyncData(await getAll());
   }
 
-  Future<void> setEventColor(int? color) async {
-    ref.read(settingsRepositoryProvider).setEventColor(color);
+  // color/colorKey always come from the same picked EventColor (or both
+  // null for "use the calendar's default") -- never set independently, or
+  // Google Calendar just ignores the mismatched raw color.
+  Future<void> setEventColor(EventColor? selection) async {
+    ref.read(settingsRepositoryProvider).setEventColor(selection?.color);
+    ref.read(settingsRepositoryProvider).setEventColorKey(selection?.colorKey);
     state = AsyncData(await getAll());
   }
 
   Future<void> setDoneColorKey(int? colorKey) async {
     ref.read(settingsRepositoryProvider).setDoneColorKey(colorKey);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setEventTimingMode(EventTimingMode value) async {
+    ref.read(settingsRepositoryProvider).setEventTimingMode(value);
     state = AsyncData(await getAll());
   }
 

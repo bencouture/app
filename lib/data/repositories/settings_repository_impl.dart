@@ -1,6 +1,7 @@
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/repositories/settings_repository.dart';
 
 class SettingsRepositoryImpl implements SettingsRepository {
@@ -199,6 +200,16 @@ class SettingsRepositoryImpl implements SettingsRepository {
   }
 
   @override
+  Future<int?> getEventColorKey() {
+    return _datasource.getEventColorKey();
+  }
+
+  @override
+  Future<void> setEventColorKey(int? colorKey) {
+    return _datasource.setEventColorKey(colorKey);
+  }
+
+  @override
   Future<int?> getDoneColorKey() {
     return _datasource.getDoneColorKey();
   }
@@ -206,5 +217,15 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<void> setDoneColorKey(int? colorKey) {
     return _datasource.setDoneColorKey(colorKey);
+  }
+
+  @override
+  Future<EventTimingMode> getEventTimingMode() {
+    return _datasource.getEventTimingMode();
+  }
+
+  @override
+  Future<void> setEventTimingMode(EventTimingMode value) {
+    return _datasource.setEventTimingMode(value);
   }
 }

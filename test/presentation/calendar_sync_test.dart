@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vikunja_app/core/network/response.dart';
 import 'package:vikunja_app/data/data_sources/settings_data_source.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 import 'package:vikunja_app/domain/entities/task.dart';
 import 'package:vikunja_app/domain/entities/user.dart';
 import 'package:vikunja_app/domain/repositories/task_repository.dart';
@@ -17,7 +18,9 @@ class _FakeSettingsDatasource implements SettingsDatasource {
   bool syncAllDayTasks;
   AllDayEventDisplay allDayEventDisplay;
   int? eventColor;
+  int? eventColorKey;
   int? doneColorKey;
+  EventTimingMode eventTimingMode;
 
   _FakeSettingsDatasource({
     this.syncEnabled = true,
@@ -26,7 +29,9 @@ class _FakeSettingsDatasource implements SettingsDatasource {
     this.syncAllDayTasks = false,
     this.allDayEventDisplay = AllDayEventDisplay.midnight,
     this.eventColor,
+    this.eventColorKey,
     this.doneColorKey,
+    this.eventTimingMode = EventTimingMode.simultaneous,
   }) : eventMap = eventMap ?? {};
 
   @override
@@ -79,11 +84,27 @@ class _FakeSettingsDatasource implements SettingsDatasource {
   }
 
   @override
+  Future<int?> getEventColorKey() async => eventColorKey;
+
+  @override
+  Future<void> setEventColorKey(int? value) async {
+    eventColorKey = value;
+  }
+
+  @override
   Future<int?> getDoneColorKey() async => doneColorKey;
 
   @override
   Future<void> setDoneColorKey(int? value) async {
     doneColorKey = value;
+  }
+
+  @override
+  Future<EventTimingMode> getEventTimingMode() async => eventTimingMode;
+
+  @override
+  Future<void> setEventTimingMode(EventTimingMode value) async {
+    eventTimingMode = value;
   }
 
   @override
@@ -305,15 +326,36 @@ void main() {
     expect(createdEvents.single['eventAllDay'], isTrue);
   });
 
-  test('applies the configured event color', () async {
+  test('applies the configured event color and colorKey together', () async {
     final dueDate = DateTime.now().add(Duration(days: 1));
     final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
-    final settings = _FakeSettingsDatasource(eventColor: 0xFFFF0000);
+    final settings = _FakeSettingsDatasource(
+      eventColor: 0xFFFF0000,
+      eventColorKey: 7,
+    );
 
     await syncCalendar(_FakeTaskRepository(tasks), settings);
 
     expect(createdEvents.single['eventColor'], 0xFFFF0000);
+    expect(createdEvents.single['eventColorKey'], 7);
   });
+
+  test(
+    'applies no color when only one half of the color/colorKey pair is set',
+    () async {
+      final dueDate = DateTime.now().add(Duration(days: 1));
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      // A raw color with no matching colorKey is exactly the "rando value"
+      // Google Calendar ignores -- both halves must come from the same
+      // picked EventColor, or neither gets applied.
+      final settings = _FakeSettingsDatasource(eventColor: 0xFFFF0000);
+
+      await syncCalendar(_FakeTaskRepository(tasks), settings);
+
+      expect(createdEvents.single['eventColor'], isNull);
+      expect(createdEvents.single['eventColorKey'], isNull);
+    },
+  );
 
   test(
     'marks the task done and drops the event when its color matches the done color',
@@ -396,6 +438,202 @@ void main() {
       // falls through to the normal sync path instead of being deleted.
       expect(deletedIds, isEmpty);
       expect(createdTitles, ['Task 1']);
+    },
+  );
+
+  test(
+    'spaces out same-day no-specific-time tasks 15 minutes apart in sequential mode',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [
+        _task(id: 2, done: false, dueDate: dueDate),
+        _task(id: 1, done: false, dueDate: dueDate),
+      ];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.midnight,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(_FakeTaskRepository(tasks), settings);
+
+      final startByTitle = <String, DateTime>{
+        for (var i = 0; i < createdTitles.length; i++)
+          createdTitles[i]: DateTime.fromMillisecondsSinceEpoch(
+            createdEvents[i]['eventStartDate'] as int,
+            isUtc: true,
+          ),
+      };
+      // Ordered by task id, not by API response order: id 1 gets the
+      // midnight slot, id 2 the next one, regardless of iteration order.
+      expect(startByTitle['Task 1']!.minute, 0);
+      expect(startByTitle['Task 2']!.minute, 15);
+    },
+  );
+
+  test(
+    'ignores sequential mode for end-of-day and all-day displays',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [
+        _task(id: 1, done: false, dueDate: dueDate),
+        _task(id: 2, done: false, dueDate: dueDate),
+      ];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.endOfDay,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(_FakeTaskRepository(tasks), settings);
+
+      for (final event in createdEvents) {
+        final end = DateTime.fromMillisecondsSinceEpoch(
+          event['eventEndDate'] as int,
+          isUtc: true,
+        );
+        expect(end.hour, 23);
+        expect(end.minute, 59);
+      }
+    },
+  );
+
+  test(
+    'sequential slots shift up once a task drops out of the sync',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.midnight,
+        eventTimingMode: EventTimingMode.sequential,
+      );
+
+      await syncCalendar(
+        _FakeTaskRepository([
+          _task(id: 1, done: false, dueDate: dueDate),
+          _task(id: 2, done: false, dueDate: dueDate),
+        ]),
+        settings,
+      );
+      createdEvents.clear();
+      createdTitles.clear();
+
+      // Task 1 is gone -- task 2 should move up into the midnight slot
+      // instead of staying at its old +15m offset.
+      await syncCalendar(
+        _FakeTaskRepository([_task(id: 2, done: false, dueDate: dueDate)]),
+        settings,
+      );
+
+      expect(createdTitles, ['Task 2']);
+      final start = DateTime.fromMillisecondsSinceEpoch(
+        createdEvents.single['eventStartDate'] as int,
+        isUtc: true,
+      );
+      expect(start.hour, 0);
+      expect(start.minute, 0);
+    },
+  );
+
+  test(
+    'reschedules existing events in place when switching simultaneous to sequential',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [
+        _task(id: 1, done: false, dueDate: dueDate),
+        _task(id: 2, done: false, dueDate: dueDate),
+      ];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.midnight,
+        eventTimingMode: EventTimingMode.simultaneous,
+      );
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+      final eventIdByTask = Map.of(settings.eventMap);
+      createdEvents.clear();
+      createdTitles.clear();
+
+      settings.eventTimingMode = EventTimingMode.sequential;
+      await syncCalendar(taskRepository, settings);
+
+      // Same underlying calendar events get updated, not deleted and
+      // recreated -- eventId on each createOrUpdateEvent call matches what
+      // the first sync already stored for that task.
+      expect(deletedIds, isEmpty);
+      for (var i = 0; i < createdTitles.length; i++) {
+        final taskId = createdTitles[i] == 'Task 1' ? 1 : 2;
+        expect(createdEvents[i]['eventId'], eventIdByTask[taskId]);
+      }
+
+      final startByTitle = <String, DateTime>{
+        for (var i = 0; i < createdTitles.length; i++)
+          createdTitles[i]: DateTime.fromMillisecondsSinceEpoch(
+            createdEvents[i]['eventStartDate'] as int,
+            isUtc: true,
+          ),
+      };
+      expect(startByTitle['Task 1']!.minute, 0);
+      expect(startByTitle['Task 2']!.minute, 15);
+    },
+  );
+
+  test(
+    'reschedules an existing event in place when switching midnight to end-of-day',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.midnight,
+      );
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+      final originalEventId = settings.eventMap[1];
+      createdEvents.clear();
+      createdTitles.clear();
+
+      settings.allDayEventDisplay = AllDayEventDisplay.endOfDay;
+      await syncCalendar(taskRepository, settings);
+
+      expect(deletedIds, isEmpty);
+      expect(createdEvents.single['eventId'], originalEventId);
+      final end = DateTime.fromMillisecondsSinceEpoch(
+        createdEvents.single['eventEndDate'] as int,
+        isUtc: true,
+      );
+      expect(end.hour, 23);
+      expect(end.minute, 59);
+    },
+  );
+
+  test(
+    'reschedules an existing event in place when switching end-of-day to an all-day event',
+    () async {
+      final dueDate = DateTime.utc(2030, 1, 1);
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        syncAllDayTasks: true,
+        allDayEventDisplay: AllDayEventDisplay.endOfDay,
+      );
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+      final originalEventId = settings.eventMap[1];
+      expect(createdEvents.single['eventAllDay'], isFalse);
+      createdEvents.clear();
+      createdTitles.clear();
+
+      settings.allDayEventDisplay = AllDayEventDisplay.allDayEvent;
+      await syncCalendar(taskRepository, settings);
+
+      // Same event gets flipped to allDay in place -- not torn down and
+      // rebuilt as a new event.
+      expect(deletedIds, isEmpty);
+      expect(createdEvents.single['eventId'], originalEventId);
+      expect(createdEvents.single['eventAllDay'], isTrue);
     },
   );
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vikunja_app/core/theming/theme_mode.dart';
 import 'package:vikunja_app/domain/entities/all_day_event_display.dart';
+import 'package:vikunja_app/domain/entities/event_timing_mode.dart';
 
 class SettingsDatasource {
   final FlutterSecureStorage _storage;
@@ -224,6 +225,23 @@ class SettingsDatasource {
     return _storage.write(key: "calendar_all_day_display", value: stored);
   }
 
+  Future<EventTimingMode> getEventTimingMode() async {
+    switch (await _storage.read(key: "calendar_event_timing_mode")) {
+      case "sequential":
+        return EventTimingMode.sequential;
+      default:
+        return EventTimingMode.simultaneous;
+    }
+  }
+
+  Future<void> setEventTimingMode(EventTimingMode value) {
+    final stored = switch (value) {
+      EventTimingMode.simultaneous => "simultaneous",
+      EventTimingMode.sequential => "sequential",
+    };
+    return _storage.write(key: "calendar_event_timing_mode", value: stored);
+  }
+
   // null means "use the calendar's default color".
   Future<int?> getEventColor() async {
     final stored = await _storage.read(key: "calendar_event_color");
@@ -234,6 +252,21 @@ class SettingsDatasource {
     return _storage.write(
       key: "calendar_event_color",
       value: color?.toString(),
+    );
+  }
+
+  // The colorKey paired with getEventColor's raw value -- both come from the
+  // same picked EventColor (retrieveEventColors) and are always set together,
+  // so Google Calendar actually persists the color instead of ignoring it.
+  Future<int?> getEventColorKey() async {
+    final stored = await _storage.read(key: "calendar_event_color_key");
+    return stored == null ? null : int.tryParse(stored);
+  }
+
+  Future<void> setEventColorKey(int? colorKey) {
+    return _storage.write(
+      key: "calendar_event_color_key",
+      value: colorKey?.toString(),
     );
   }
 
