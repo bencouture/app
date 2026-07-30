@@ -38,7 +38,9 @@ build-ios-debug:
 install: build-debug
 	# `flutter install` uninstalls any existing copy first (wiping settings
 	# and permission grants) -- adb install -r updates in place instead.
-	adb install -r build/app/outputs/flutter-apk/app-debug.apk
+	# Prefer a real device over an emulator when both are attached.
+	@device=$$(adb devices | awk 'NR>1 && $$2=="device" {print $$1}' | grep -v '^emulator-' | head -n1); \
+	adb $${device:+-s $$device} install -r build/app/outputs/flutter-apk/app-debug.apk
 
 .PHONY: format
 format:
