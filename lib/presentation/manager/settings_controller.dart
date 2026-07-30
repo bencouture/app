@@ -55,6 +55,9 @@ class SettingsController extends _$SettingsController {
     var eventColor = await ref
         .read(settingsRepositoryProvider)
         .getEventColor();
+    var doneColorKey = await ref
+        .read(settingsRepositoryProvider)
+        .getDoneColorKey();
 
     var version = await ref
         .read(versionRepositoryProvider)
@@ -81,6 +84,7 @@ class SettingsController extends _$SettingsController {
       syncAllDayTasks,
       allDayEventDisplay,
       eventColor,
+      doneColorKey,
       version,
     );
   }
@@ -153,6 +157,11 @@ class SettingsController extends _$SettingsController {
 
   Future<void> setEventColor(int? color) async {
     ref.read(settingsRepositoryProvider).setEventColor(color);
+    state = AsyncData(await getAll());
+  }
+
+  Future<void> setDoneColorKey(int? colorKey) async {
+    ref.read(settingsRepositoryProvider).setDoneColorKey(colorKey);
     state = AsyncData(await getAll());
   }
 

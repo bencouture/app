@@ -197,4 +197,14 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<void> setEventColor(int? color) {
     return _datasource.setEventColor(color);
   }
+
+  @override
+  Future<int?> getDoneColorKey() {
+    return _datasource.getDoneColorKey();
+  }
+
+  @override
+  Future<void> setDoneColorKey(int? colorKey) {
+    return _datasource.setDoneColorKey(colorKey);
+  }
 }

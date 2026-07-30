@@ -237,6 +237,21 @@ class SettingsDatasource {
     );
   }
 
+  // The Google Calendar event colorKey (from retrieveEventColors) that
+  // marks a synced event done; null disables the check. No universal
+  // default exists -- the palette is per Google account.
+  Future<int?> getDoneColorKey() async {
+    final stored = await _storage.read(key: "calendar_done_color_key");
+    return stored == null ? null : int.tryParse(stored);
+  }
+
+  Future<void> setDoneColorKey(int? colorKey) {
+    return _storage.write(
+      key: "calendar_done_color_key",
+      value: colorKey?.toString(),
+    );
+  }
+
   // task id -> device calendar event id, for syncCalendar to know which
   // events to update vs. create, and which to delete once a task is no
   // longer open/due.

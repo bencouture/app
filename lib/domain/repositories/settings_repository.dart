@@ -77,4 +77,8 @@ abstract class SettingsRepository {
   Future<int?> getEventColor();
 
   Future<void> setEventColor(int? color);
+
+  Future<int?> getDoneColorKey();
+
+  Future<void> setDoneColorKey(int? colorKey);
 }

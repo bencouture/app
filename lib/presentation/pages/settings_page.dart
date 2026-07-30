@@ -44,6 +44,18 @@ final _eventColorOptions = <String, int?>{
   'Purple': Colors.purple.toARGB32(),
 };
 
+// retrieveEventColors needs the actual Calendar (for its accountName), not
+// just the id syncCalendarId stores -- returns [] on iOS/non-Google
+// calendars, same as the plugin itself.
+Future<List<EventColor>> _retrieveDoneColorOptions(String? calendarId) async {
+  if (calendarId == null) return [];
+  final calendarsResult = await DeviceCalendarPlugin().retrieveCalendars();
+  final calendar = (calendarsResult.data ?? const [])
+      .firstWhereOrNull((c) => c.id == calendarId);
+  if (calendar == null) return [];
+  return await DeviceCalendarPlugin().retrieveEventColors(calendar) ?? [];
+}
+
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -286,6 +298,54 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                           .read(settingsControllerProvider.notifier)
                           .setEventColor(value);
                       await syncCalendar(ref.read(taskRepositoryProvider));
+                    },
+                  ),
+                ),
+              if (settings.calendarSyncEnabled)
+                ListTile(
+                  title: Text("Mark done via color"),
+                  subtitle: Text(
+                    "Setting a synced event to this color closes the task "
+                    "and removes the event. Google Calendar on Android only.",
+                  ),
+                  trailing: FutureBuilder(
+                    future: _retrieveDoneColorOptions(settings.syncCalendarId),
+                    builder: (context, snapshot) {
+                      final colors = snapshot.data ?? const <EventColor>[];
+                      return DropdownButton<int?>(
+                        value: settings.doneColorKey,
+                        items: [
+                          DropdownMenuItem(value: null, child: Text("None")),
+                          ...colors.map(
+                            (c) => DropdownMenuItem(
+                              value: c.colorKey,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Color(c.color),
+                                      border: Border.all(
+                                        color: Theme.of(context).dividerColor,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Text("Color ${c.colorKey}"),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) async {
+                          await ref
+                              .read(settingsControllerProvider.notifier)
+                              .setDoneColorKey(value);
+                        },
+                      );
                     },
                   ),
                 ),

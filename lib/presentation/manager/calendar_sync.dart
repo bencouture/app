@@ -17,6 +17,14 @@ bool _hasNoSpecificTime(DateTime due) {
   return utc.hour == 0 && utc.minute == 0 && utc.second == 0;
 }
 
+// The done-marker is a Google Calendar event color (colorKey, from
+// retrieveEventColors/updateEventColor) the user sets on the synced event.
+// Android/Google-calendar only -- device_calendar has no per-event color API
+// on iOS.
+bool _matchesDoneColor(Event event, int doneColorKey) {
+  return event.colorKey == doneColorKey;
+}
+
 /// One-way sync: open tasks with due dates -> one event per task on the
 /// user's chosen device calendar. Mirrors scheduleDueNotifications/
 /// updateWidget: fetch tasks, reconcile against the last-known state, done.
@@ -40,6 +48,7 @@ Future<void> syncCalendar(
   final syncAllDayTasks = await settings.getSyncAllDayTasks();
   final allDayEventDisplay = await settings.getAllDayEventDisplay();
   final eventColor = await settings.getEventColor();
+  final doneColorKey = await settings.getDoneColorKey();
 
   try {
     var taskResponse = await taskService.getByFilterString(
@@ -58,8 +67,47 @@ Future<void> syncCalendar(
     final mapping = await settings.getCalendarEventMap();
     final stillPresent = <int>{};
 
+    // Reverse direction: an already-synced event whose color got set to the
+    // done color externally means the user marked it done from the calendar
+    // app. Batch-fetch once up front rather than per task.
+    final eventsById = <String, Event>{};
+    if (doneColorKey != null && mapping.isNotEmpty) {
+      final retrieveResult = await plugin.retrieveEvents(
+        calendarId,
+        RetrieveEventsParams(eventIds: mapping.values.toList()),
+      );
+      if (retrieveResult.isSuccess) {
+        for (final event in retrieveResult.data!) {
+          if (event.eventId != null) eventsById[event.eventId!] = event;
+        }
+      } else {
+        developer.log(
+          "Calendar sync: retrieveEvents failed: ${retrieveResult.errors}",
+        );
+      }
+    }
+
     for (final task in taskResponse.toSuccess().body) {
       if (task.done || !task.hasDueDate) continue;
+
+      final existingEventId = mapping[task.id];
+      final existingEvent = existingEventId == null
+          ? null
+          : eventsById[existingEventId];
+      if (existingEvent != null &&
+          _matchesDoneColor(existingEvent, doneColorKey!)) {
+        final updateResult = await taskService.update(
+          task.copyWith(done: true),
+        );
+        if (updateResult.isSuccessful) {
+          // Don't mark stillPresent -- the cleanup pass below deletes the
+          // event and drops the mapping entry, same as any other done task.
+          continue;
+        }
+        developer.log(
+          "Calendar sync: marking task ${task.id} done failed: $updateResult",
+        );
+      }
 
       final noSpecificTime = _hasNoSpecificTime(task.dueDate!);
       if (noSpecificTime && !syncAllDayTasks) continue;
@@ -89,8 +137,6 @@ Future<void> syncCalendar(
         start = TZDateTime.from(task.dueDate!, local);
         end = start.add(_eventDuration);
       }
-
-      final existingEventId = mapping[task.id];
 
       final event = Event(
         calendarId,

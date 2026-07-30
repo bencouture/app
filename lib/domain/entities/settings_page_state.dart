@@ -22,6 +22,7 @@ class SettingsPageState {
   bool syncAllDayTasks;
   AllDayEventDisplay allDayEventDisplay;
   int? eventColor;
+  int? doneColorKey;
 
   Version? currentVersion;
 
@@ -39,6 +40,7 @@ class SettingsPageState {
     this.syncAllDayTasks,
     this.allDayEventDisplay,
     this.eventColor,
+    this.doneColorKey,
     this.currentVersion,
   );
 }

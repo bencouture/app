@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vikunja_app/core/network/response.dart';
@@ -15,6 +17,7 @@ class _FakeSettingsDatasource implements SettingsDatasource {
   bool syncAllDayTasks;
   AllDayEventDisplay allDayEventDisplay;
   int? eventColor;
+  int? doneColorKey;
 
   _FakeSettingsDatasource({
     this.syncEnabled = true,
@@ -23,6 +26,7 @@ class _FakeSettingsDatasource implements SettingsDatasource {
     this.syncAllDayTasks = false,
     this.allDayEventDisplay = AllDayEventDisplay.midnight,
     this.eventColor,
+    this.doneColorKey,
   }) : eventMap = eventMap ?? {};
 
   @override
@@ -75,6 +79,14 @@ class _FakeSettingsDatasource implements SettingsDatasource {
   }
 
   @override
+  Future<int?> getDoneColorKey() async => doneColorKey;
+
+  @override
+  Future<void> setDoneColorKey(int? value) async {
+    doneColorKey = value;
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -83,6 +95,8 @@ class _FakeTaskRepository implements TaskRepository {
   bool getByFilterStringCalled = false;
   String? filterStringReceived;
   Map<String, List<String>>? queryParametersReceived;
+  final List<Task> updatedTasks = [];
+  bool updateShouldFail = false;
 
   _FakeTaskRepository(this.tasks);
 
@@ -95,6 +109,15 @@ class _FakeTaskRepository implements TaskRepository {
     filterStringReceived = filterString;
     queryParametersReceived = queryParameters;
     return SuccessResponse(tasks, 200, {});
+  }
+
+  @override
+  Future<Response<Task>> update(Task task) async {
+    updatedTasks.add(task);
+    if (updateShouldFail) {
+      return ErrorResponse(400, {}, {'message': 'update failed'});
+    }
+    return SuccessResponse(task, 200, {});
   }
 
   @override
@@ -124,12 +147,17 @@ void main() {
   late List<String> createdTitles;
   late List<Map> createdEvents;
   late List<String> deletedIds;
+  // eventId -> colorKey the mocked retrieveEvents call hands back.
+  late Map<String, int?> eventColorKeys;
+  late List<List<Object?>> retrieveEventsCalls;
   int nextId = 0;
 
   setUp(() {
     createdTitles = [];
     createdEvents = [];
     deletedIds = [];
+    eventColorKeys = {};
+    retrieveEventsCalls = [];
     nextId = 0;
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -144,6 +172,20 @@ void main() {
           final args = call.arguments as Map;
           deletedIds.add(args['eventId'] as String);
           return true;
+        case 'retrieveEvents':
+          final args = call.arguments as Map;
+          final eventIds = (args['eventIds'] as List?) ?? const [];
+          retrieveEventsCalls.add(eventIds.cast<Object?>());
+          return jsonEncode(
+            eventIds
+                .map(
+                  (id) => {
+                    'eventId': id,
+                    'eventColorKey': eventColorKeys[id],
+                  },
+                )
+                .toList(),
+          );
         default:
           return null;
       }
@@ -272,4 +314,88 @@ void main() {
 
     expect(createdEvents.single['eventColor'], 0xFFFF0000);
   });
+
+  test(
+    'marks the task done and drops the event when its color matches the done color',
+    () async {
+      final dueDate = DateTime.now().add(Duration(days: 1));
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        eventMap: {1: 'ev-1'},
+        doneColorKey: 7,
+      );
+      eventColorKeys['ev-1'] = 7;
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+
+      expect(taskRepository.updatedTasks, hasLength(1));
+      expect(taskRepository.updatedTasks.single.id, 1);
+      expect(taskRepository.updatedTasks.single.done, isTrue);
+      expect(deletedIds, ['ev-1']);
+      expect(settings.eventMap.containsKey(1), isFalse);
+      // The event is only ever deleted, never rebuilt, once its color matches.
+      expect(createdTitles, isEmpty);
+    },
+  );
+
+  test(
+    'leaves the task open and keeps syncing when the color does not match the done color',
+    () async {
+      final dueDate = DateTime.now().add(Duration(days: 1));
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        eventMap: {1: 'ev-1'},
+        doneColorKey: 7,
+      );
+      eventColorKeys['ev-1'] = 3;
+      final taskRepository = _FakeTaskRepository(tasks);
+
+      await syncCalendar(taskRepository, settings);
+
+      expect(taskRepository.updatedTasks, isEmpty);
+      expect(createdTitles, ['Task 1']);
+      expect(settings.eventMap[1], isNotEmpty);
+    },
+  );
+
+  test('skips the done-color check entirely when no color is configured', () async {
+    final dueDate = DateTime.now().add(Duration(days: 1));
+    final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+    final settings = _FakeSettingsDatasource(
+      eventMap: {1: 'ev-1'},
+      doneColorKey: null,
+    );
+    eventColorKeys['ev-1'] = 7;
+    final taskRepository = _FakeTaskRepository(tasks);
+
+    await syncCalendar(taskRepository, settings);
+
+    expect(retrieveEventsCalls, isEmpty);
+    expect(taskRepository.updatedTasks, isEmpty);
+    expect(createdTitles, ['Task 1']);
+  });
+
+  test(
+    'keeps retrying next sync when marking the task done fails',
+    () async {
+      final dueDate = DateTime.now().add(Duration(days: 1));
+      final tasks = [_task(id: 1, done: false, dueDate: dueDate)];
+      final settings = _FakeSettingsDatasource(
+        eventMap: {1: 'ev-1'},
+        doneColorKey: 7,
+      );
+      eventColorKeys['ev-1'] = 7;
+      final taskRepository = _FakeTaskRepository(tasks)
+        ..updateShouldFail = true;
+
+      await syncCalendar(taskRepository, settings);
+
+      expect(taskRepository.updatedTasks, hasLength(1));
+      // The task is still open Vikunja-side, so the event must live on --
+      // falls through to the normal sync path instead of being deleted.
+      expect(deletedIds, isEmpty);
+      expect(createdTitles, ['Task 1']);
+    },
+  );
 }
