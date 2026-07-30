@@ -108,6 +108,13 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
       body: settings.when(
         data: (settings) {
           durationTextController.text = settings.refreshInterval.toString();
+          // Called once per build and shared by both pickers below, so
+          // "Event color" and "Mark done via color" always see the exact
+          // same resolved list instead of two independent plugin round-trips
+          // that happen to usually agree.
+          final eventColorOptionsFuture = _retrieveEventColorOptions(
+            settings.syncCalendarId,
+          );
 
           return ListView(
             children: [
@@ -321,7 +328,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
               if (settings.calendarSyncEnabled)
                 FutureBuilder(
-                  future: _retrieveEventColorOptions(settings.syncCalendarId),
+                  future: eventColorOptionsFuture,
                   builder: (context, snapshot) {
                     // No idiomatic reason to show a picker that can only
                     // ever offer "Default" -- hide the row entirely rather
@@ -389,7 +396,7 @@ class SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
               if (settings.calendarSyncEnabled)
                 FutureBuilder(
-                  future: _retrieveEventColorOptions(settings.syncCalendarId),
+                  future: eventColorOptionsFuture,
                   builder: (context, snapshot) {
                     final colors = snapshot.data;
                     if (colors == null || colors.isEmpty) {
