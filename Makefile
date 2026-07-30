@@ -35,8 +35,10 @@ build-ios-debug:
 	$(FLUTTER) build ios --debug --build-number=$(VERSION) --no-codesign
 
 .PHONY: install
-install:
-	$(FLUTTER) install --debug
+install: build-debug
+	# `flutter install` uninstalls any existing copy first (wiping settings
+	# and permission grants) -- adb install -r updates in place instead.
+	adb install -r build/app/outputs/flutter-apk/app-debug.apk
 
 .PHONY: format
 format:
