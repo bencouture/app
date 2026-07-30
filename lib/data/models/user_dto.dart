@@ -31,7 +31,9 @@ class UserSettingsDto extends Dto<UserSettings> {
       discoverableByEmail = json['discoverable_by_email'],
       discoverableByName = json['discoverable_by_name'],
       emailRemindersEnabled = json['email_reminders_enabled'],
-      frontendSettings = json['frontend_settings'],
+      frontendSettings = json['frontend_settings'] is Map<String, dynamic>
+          ? json['frontend_settings'] as Map<String, dynamic>
+          : null,
       language = json['language'],
       name = json['name'],
       overdueTasksRemindersEnabled = json['overdue_tasks_reminders_enabled'],

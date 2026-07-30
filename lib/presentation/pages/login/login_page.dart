@@ -560,9 +560,10 @@ class LoginPageState extends ConsumerState<LoginPage> {
         };
         _showErrorSnackBar(context, message);
       }
-    } catch (e) {
+    } catch (e, s) {
       if (_cancelled) return;
-      log("Login failed: $e");
+      debugPrint("Login failed: $e\n$s");
+      Sentry.captureException(e, stackTrace: s);
       if (context.mounted) {
         setState(() {
           _serverError = AppLocalizations.of(context).cannotReachServer;

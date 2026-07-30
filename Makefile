@@ -34,6 +34,10 @@ build-ios:
 build-ios-debug:
 	$(FLUTTER) build ios --debug --build-number=$(VERSION) --no-codesign
 
+.PHONY: install
+install:
+	$(FLUTTER) install --debug
+
 .PHONY: format
 format:
 	dart format lib
